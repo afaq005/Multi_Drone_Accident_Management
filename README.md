@@ -117,3 +117,7 @@ Results demonstrate robust scene understanding suitable for real-time emergency 
 * Vision–language navigation and reasoning
 
 * Disaster monitoring and smart cities
+
+## 🤝 Contact
+
+* For questions, collaboration, or issues, please contact the authors.
