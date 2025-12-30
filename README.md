@@ -121,3 +121,4 @@ Results demonstrate robust scene understanding suitable for real-time emergency 
 ## 🤝 Contact
 
 * For questions, collaboration, or issues, please contact the authors.
+*  email : afaq@jbnu.ac.kr
