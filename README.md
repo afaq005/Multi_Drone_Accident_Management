@@ -137,7 +137,6 @@ conda activate mdam
 ### ROS / Gazebo / MAVROS / ArduPilot (required for `simulation/`)
 This is a plug-in agentic layer : add your own Gazebo world, drone models, and ArduPilot/PX4+MAVROS bridge, publish/subscribe to those topic names, and the five agents work unmodified. No agent code assumes a specific world or vehicle.
 
-Every agent script also runs **standalone without ROS** (see each module's `--help`) for development and testing.
 
 ### Environment variables
 ```bash
@@ -221,15 +220,6 @@ Fine-tunes `Salesforce/blip2-opt-2.7b` with the vision encoder **and Q-Former fr
 <summary><b>📡 Dispatch Agent</b> — <code>dispatch_agent/</code></summary>
 
 Computes the severity score of Eq. 24 (`sigmoid(α·conf_YOLO + β·log p_BLIP2)`), routes each alert to the nearest rescue center via Eq. 25 (haversine distance over `RESCUE_CENTERS` in `model/config.py`), synthesizes audio with Piper TTS, and publishes the JSON payload over MQTT.
-</details>
-
-<details>
-<summary><b>🛩️ Simulation / Flight Stack</b> — <code>simulation/</code></summary>
-
-- `worlds/four_accident_sites.world` — Gazebo SDF world with 4 geographically separated accident sites (static obstacles + a vehicle each), per Section 6.1.
-- `launch/start_sitl_fleet.sh` — spins up 4 ArduCopter SITL instances (`sim_vehicle.py -I0..3`).
-- `launch/mavros_bridge.launch` — bridges each SITL instance into ROS as `/droneN/mavros/...`.
-- `gnc_controller/gnc_node.py` — per-drone GNC state machine (arm → climb to 10 m AGL → follow `/droneN/waypoints` → 360° yaw sweep on arrival), publishing setpoints at 2 Hz per Section 6.3.
 </details>
 
 ---
