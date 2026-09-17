@@ -255,7 +255,7 @@ python dataset_finetuning/generate_captions_moondream2.py \
 | Model | mAP@50 (All) | Recall (All) | Inference (ms) | Params (M) | GFLOPs |
 |---|---|---|---|---|---|
 | YOLOv12n | 0.841 | 0.770 | 3.1 | 2.55 | 6.3 |
-| **YOLOv11n** ✅ | **0.874** | **0.826** | 2.2 | 2.58 | 6.3 |
+| **YOLOv11n** ✅ | **0.874** | **0.826** | 2.2 | 2.58 | **6.3** |
 | YOLOv10n | 0.852 | 0.722 | 2.7 | 2.69 | 8.2 |
 | YOLOv9t | 0.841 | 0.777 | 2.8 | 1.97 | 7.6 |
 | YOLOv8n | 0.860 | 0.803 | 1.9 | 3.01 | 8.1 |
