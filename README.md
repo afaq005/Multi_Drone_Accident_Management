@@ -24,7 +24,6 @@ Five autonomous, communicating agents — **planning, coordination, per-drone pe
 - [Agent-by-Agent Guide](#agent-by-agent-guide)
 - [Dataset](#dataset)
 - [Results](#results)
-- [Running the Full Simulation](#running-the-full-simulation)
 - [Testing](#testing)
 - [Status / What's Implemented](#status--whats-implemented)
 - [Citation](#citation)
@@ -299,24 +298,6 @@ python dataset_finetuning/generate_captions_moondream2.py \
 
 ---
 
-## Running the Full Simulation
-
-```bash
-# 1. Launch Gazebo with the 4-accident-site world
-gazebo simulation/worlds/four_accident_sites.world &
-
-# 2. Spin up the ArduCopter SITL fleet
-bash simulation/launch/start_sitl_fleet.sh &
-
-# 3. Bring up MAVROS bridges + GNC + perception + coordination + planning agents
-roslaunch simulation/launch/full_pipeline.launch
-
-# 4. Publish an emergency call transcript to kick off a mission
-rostopic pub /llm_waypoint_request std_msgs/String \
-  "data: 'Fly drone 1 to (-165, -1.43, 10), drone 2 to (102.2, 4.1, 10)'"
-```
-
----
 
 ## Testing
 
