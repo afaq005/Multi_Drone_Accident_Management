@@ -70,6 +70,8 @@ Flight stack (ArduPilot + MAVROS + Gazebo, Section 6.1/6.3) lives in [`simulatio
 ```
 Multi_Drone_Accident_Management/
 │
+├── Yolov11n_Model_Weights
+├── blip_finetuning
 ├── planning_agent/            # GPT-4o mini transcript parsing → structured JSON (coords, intent)
 │   ├── prompt_templates/
 │   │   └── system_prompt.txt
