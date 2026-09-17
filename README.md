@@ -1,4 +1,4 @@
-## LLM-Guided Multi-Drone Coordination for Simultaneous Multi-Accident Detection and Scene Understanding
+## An Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response
 ## 📌 Overview
 
 Rapid and effective response to highway accidents is critical for minimizing injuries and saving lives.
