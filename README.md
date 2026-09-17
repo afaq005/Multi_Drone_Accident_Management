@@ -112,7 +112,6 @@ Multi_Drone_Accident_Management/
 ├── requirements.txt
 ├── environment.yml              # conda alternative
 ├── LICENSE
-├── CONTRIBUTING.md
 └── README.md
 ```
 
