@@ -1,4 +1,4 @@
-# 🚁 Multi-Drone Accident Management
+#  Multi-Drone Accident Management
 
 **An agentic, end-to-end multi-drone framework for autonomous highway accident detection, reasoning, and emergency response.**
 
