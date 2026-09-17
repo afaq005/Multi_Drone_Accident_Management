@@ -70,46 +70,45 @@ flowchart LR
 Multi_Drone_Accident_Management/
 │
 ├── Yolov11n_Model_Weights
-├── planning_agent/            # GPT-4o mini transcript parsing → structured JSON (coords, intent)
+├── planning_agent/           
 │   ├── prompt_templates/
 │   │   └── system_prompt.txt
 │   └── llm_waypoint_node.py
 │
-├── coordination_agent/        # Drone-to-incident assignment solver (Eq. 2), waypoint publishing
+├── coordination_agent/        
 │   ├── assignment_solver.py
 │   └── coordination_node.py
 │
-├── perception_agent/          # YOLOv11n incident/fire detection (was "YoloDetection")
+├── perception_agent/          
 │   ├── train_yolov11n.py
 │   ├── inference_node.py
-│   └── weights/                # trained checkpoints (not committed — see weights/README.md)
 │
-├── description_agent/         # Fine-tuned BLIP-2 scene description (was "blip_finetuning")
+├── description_agent/        
 │   ├── finetune_blip2.py
-│   ├── fusion.py               # confidence-weighted multi-view caption fusion (Eq. 23)
+│   ├── fusion.py              
 │   └── inference.py
 │
-├── dispatch_agent/            # Piper TTS + nearest-rescue-center routing
+├── dispatch_agent/           
 │   ├── tts_dispatch.py
 │   └── rescue_center_router.py
 │
-├── dataset_finetuning/         # Dataset curation & augmentation  
+├── dataset_finetuning/           
 │   ├── prepare_dataset.py
 │   └── generate_captions_moondream2.py
 │
-├── video_inference/            # Real-world video testing (YOLOv11n + BLIP-2/SmolVLM comparison)
+├── video_inference/           
 │   └── youtube_video_test.py
 │
-├── model/                       # Shared config/utilities used by every agent
+├── model/                      
 │   ├── config.py
 │   └── utils.py
 │
-├── tests/                       # Unit tests for the assignment solver, fusion, and routing logic
+├── tests/                       
 │
 ├── docs/
 │
 ├── requirements.txt
-├── environment.yml              # conda alternative
+├── environment.yml            
 ├── LICENSE
 └── README.md
 ```
