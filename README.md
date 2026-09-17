@@ -342,11 +342,7 @@ Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-
 | Perception agent (YOLOv11n train + inference) | ✅ Implemented (bring your own trained weights) |
 | Description agent (BLIP-2 fine-tune + fusion) | ✅ Implemented, unit-tested |
 | Dispatch agent (Piper TTS + routing) | ✅ Implemented, unit-tested |
-| Gazebo world / ArduPilot / MAVROS launch files | ✅ Implemented (requires local ROS/Gazebo install to run) |
-| GNC flight controller | ✅ Implemented |
 | Dataset compilation / augmentation scripts | ✅ Implemented |
-| Trained checkpoints (YOLOv11n, BLIP-2) | ⏳ Available upon request (see Dataset section) |
-| Raw datasets | ⏳ Available upon request (see Dataset section) |
 
 ---
 
