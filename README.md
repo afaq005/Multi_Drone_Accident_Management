@@ -11,7 +11,7 @@
 [![Simulator](https://img.shields.io/badge/simulator-Gazebo-orange.svg)](#-simulation-environment)
 
 
-<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b" />
+<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b"  width="850" />
 
 *Figure: Emergency call → language planning → drone allocation → navigation → detection → scene reasoning → dispatch, in a closed loop.*
 
