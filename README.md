@@ -12,7 +12,7 @@ This repository implements the system described in:
 > *An Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response*
 > Afaq Ahmed, Hassan Eesaar, Muhammad Farhan, YongSuk Yoo, Deok Jin Lee — Jeonbuk National University
 
-Five autonomous, communicating agents — **planning, coordination, per-drone perception, scene description, and dispatch** — jointly reason over, allocate, and respond to multiple simultaneous highway accidents without step-by-step human supervision, validated in Gazebo and on a physical M30T drone.
+Five autonomous, communicating agents : **planning, coordination, per-drone perception, scene description, and dispatch** : jointly reason over, allocate, and respond to multiple simultaneous highway accidents without step-by-step human supervision, validated in Gazebo and on a physical M30T drone.
 
 ---
 
@@ -251,7 +251,7 @@ python dataset_finetuning/generate_captions_moondream2.py \
 
 ## Results
 
-### YOLO model comparison (Table 1) — YOLOv11n selected for deployment
+### YOLO model comparison (Table 1) : YOLOv11n selected for deployment
 | Model | mAP@50 (All) | Recall (All) | Inference (ms) | Params (M) | GFLOPs |
 |---|---|---|---|---|---|
 | YOLOv12n | 0.841 | 0.770 | 3.1 | 2.55 | 6.3 |
@@ -265,7 +265,7 @@ python dataset_finetuning/generate_captions_moondream2.py \
 |---|---|---|---|---|
 | 11.70 | 30.12 | 35.05 | 45.05 | 21.42 |
 
-### Inference-time comparison (Table 3) — BLIP-2 FT vs SmolVLM
+### Inference-time comparison (Table 3) : BLIP-2 FT vs SmolVLM
 | Case | SmolVLM (s) | BLIP2-Finetuned (s) |
 |---|---|---|
 | Accident 1 | 3.63 | 1.413 |
@@ -273,7 +273,7 @@ python dataset_finetuning/generate_captions_moondream2.py \
 | Fire 1 | 3.27 | 1.912 |
 | Fire 2 | 3.76 | 1.413 |
 
-### End-to-end latency (Table 5) — 7.7 s total, RTX 3090 @ FP16
+### End-to-end latency (Table 5) : 7.7 s total, RTX 3090 @ FP16
 | Stage | Median (ms) |
 |---|---|
 | GPT-4o mini waypoint extraction | 620 |
@@ -295,7 +295,7 @@ pip install pytest
 pytest tests/ -v
 ```
 
-Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-view caption fusion (Eq. 23), and dispatch severity/routing (Eq. 24-25) — the pure-Python logic that's testable without ROS/GPU hardware.
+Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-view caption fusion (Eq. 23), and dispatch severity/routing (Eq. 24-25) : the pure-Python logic that's testable without ROS/GPU hardware.
 
 ---
 
