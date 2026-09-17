@@ -1,3 +1,4 @@
+
 <div align="center">
 
 # 🚁 Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response
@@ -9,7 +10,8 @@
 [![ROS](https://img.shields.io/badge/ROS-Noetic-22314E.svg)](#-requirements)
 [![Simulator](https://img.shields.io/badge/simulator-Gazebo-orange.svg)](#-simulation-environment)
 
-<img src="docs/assets/fig1_framework_overview.png" alt="System framework overview" width="850"/>
+
+<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b" />
 
 *Figure: Emergency call → language planning → drone allocation → navigation → detection → scene reasoning → dispatch, in a closed loop.*
 
