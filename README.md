@@ -136,11 +136,7 @@ conda activate mdam
 ```
 
 ### ROS / Gazebo / MAVROS / ArduPilot (required for `simulation/`)
-The flight stack is **not pip-installable** — install via your ROS distribution:
-- ROS Noetic (Ubuntu 20.04) or ROS 2 equivalent
-- Gazebo 11
-- [ArduPilot SITL](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
-- [MAVROS](https://github.com/mavlink/mavros)
+This is a plug-in agentic layer : add your own Gazebo world, drone models, and ArduPilot/PX4+MAVROS bridge, publish/subscribe to those topic names, and the five agents work unmodified. No agent code assumes a specific world or vehicle.
 
 Every agent script also runs **standalone without ROS** (see each module's `--help`) for development and testing.
 
