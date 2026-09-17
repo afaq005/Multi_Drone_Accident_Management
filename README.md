@@ -11,7 +11,7 @@
 [![Simulator](https://img.shields.io/badge/simulator-Gazebo-orange.svg)](#-simulation-environment)
 
 
-<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b"  width="850" />
+<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b"  width="550" />
 
 *Figure: Emergency call → language planning → drone allocation → navigation → detection → scene reasoning → dispatch, in a closed loop.*
 
@@ -41,9 +41,6 @@ The system was validated in **Gazebo simulation** (four simultaneous accident si
 
 ## 🏗️ System Architecture
 
-<div align="center">
-<img src="docs/assets/fig2_gazebo_pipeline.png" alt="Gazebo simulation pipeline" width="800"/>
-</div>
 
 ```
 Emergency Call Transcript
@@ -254,9 +251,6 @@ pip install -r requirements.txt
 - **YouTube video testing**: 4 real-world videos (2 accident, 2 fire) — YOLOv11n detection followed by BLIP-2 fine-tuned captioning, benchmarked against SmolVLM.
 - **Physical outdoor testing**: DJI M30T drone, RGB + infrared, two physically staged collision scenarios — confirms perception and description agents generalize from simulation to real sensing hardware without architectural changes.
 
-<div align="center">
-<img src="docs/assets/fig8_physical_testing.png" alt="Physical M30T drone testing" width="800"/>
-</div>
 
 ---
 
