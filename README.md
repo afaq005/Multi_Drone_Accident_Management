@@ -71,7 +71,6 @@ Flight stack (ArduPilot + MAVROS + Gazebo, Section 6.1/6.3) lives in [`simulatio
 Multi_Drone_Accident_Management/
 │
 ├── Yolov11n_Model_Weights
-├── blip_finetuning
 ├── planning_agent/            # GPT-4o mini transcript parsing → structured JSON (coords, intent)
 │   ├── prompt_templates/
 │   │   └── system_prompt.txt
@@ -94,16 +93,6 @@ Multi_Drone_Accident_Management/
 ├── dispatch_agent/            # Piper TTS + nearest-rescue-center routing
 │   ├── tts_dispatch.py
 │   └── rescue_center_router.py
-│
-├── simulation/                 # Gazebo worlds + ArduPilot/MAVROS bridge
-│   ├── worlds/
-│   │   └── four_accident_sites.world
-│   ├── launch/
-│   │   ├── start_sitl_fleet.sh
-│   │   ├── mavros_bridge.launch
-│   │   └── full_pipeline.launch
-│   └── gnc_controller/
-│       └── gnc_node.py
 │
 ├── dataset_finetuning/         # Dataset curation & augmentation (Roboflow compilation, Fig. 3)
 │   ├── prepare_dataset.py
