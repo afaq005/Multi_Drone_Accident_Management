@@ -232,7 +232,7 @@ Two datasets are used (Section 4.1, Fig. 3):
 | YOLO detection dataset | 2 public Roboflow datasets ([donghee/test-d95ea](https://universe.roboflow.com/donghee/test-d95ea), [kk-qg4vu/car-fires-detection](https://universe.roboflow.com/kk-qg4vu/car-fires-detection)) + prior-study dataset ([Ahmed et al. 2024](https://doi.org/10.3390/drones8120741)) | 2,548 base → 4,331 after augmentation (3,566 train / 511 val / 254 test) |
 | BLIP-2 fine-tuning pairs | Same source images, captioned via `moondream2` | 1,783 train / 511 val / 254 test |
 
-> **Per the paper's Data Availability statement:** both datasets and code will be provided upon request to the authors, as this is part of ongoing research. This repo includes the **scripts** to reproduce compilation/augmentation/captioning ([`dataset_finetuning/`](dataset_finetuning/)) — raw images are not redistributed here.
+
 
 Reproduce the pipeline:
 ```bash
