@@ -10,7 +10,7 @@
 This repository implements the system described in:
 
 > *An Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response*
-> Afaq Ahmed, Hassan Eesaar, Muhammad Farhan, YongSuk Yoo, Deok Jin Lee — Jeonbuk National University
+> Afaq Ahmed, Hassan Eesaar, Muhammad Farhan, YongSuk Yoo, Deok Jin Lee : Jeonbuk National University
 
 Five autonomous, communicating agents : **planning, coordination, per-drone perception, scene description, and dispatch** : jointly reason over, allocate, and respond to multiple simultaneous highway accidents without step-by-step human supervision, validated in Gazebo and on a physical M30T drone.
 
@@ -132,7 +132,7 @@ conda activate mdam
 ```
 
 ### ROS / Gazebo / MAVROS / ArduPilot (required for `simulation/`)
-This is a plug-in agentic layer : add your own Gazebo world, drone models, and ArduPilot/PX4+MAVROS bridge, publish/subscribe to those topic names, and the five agents work unmodified. No agent code assumes a specific world or vehicle.
+This is a plug-in agentic layer : add your own Gazebo world, drone models, and ArduPilot+MAVROS bridge, publish/subscribe to those topic names, and the five agents work unmodified. No agent code assumes a specific world or vehicle.
 
 
 ### Environment variables
