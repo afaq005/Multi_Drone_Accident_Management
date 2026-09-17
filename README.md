@@ -61,7 +61,7 @@ flowchart LR
 | 4 | **Description** | Fine-tuned BLIP-2 scene captioning + multi-view confidence-weighted fusion (Eq. 18-20, 23) | [`description_agent/`](description_agent/) |
 | 5 | **Dispatch** | Piper TTS audio alerts + nearest-rescue-center routing (Eq. 24-25) | [`dispatch_agent/`](dispatch_agent/) |
 
-Flight stack (ArduPilot + MAVROS + Gazebo, Section 6.1/6.3) lives in [`simulation/`](simulation/).
+
 
 ---
 
