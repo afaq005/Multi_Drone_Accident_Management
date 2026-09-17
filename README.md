@@ -93,7 +93,7 @@ Multi_Drone_Accident_Management/
 │   ├── tts_dispatch.py
 │   └── rescue_center_router.py
 │
-├── dataset_finetuning/         # Dataset curation & augmentation (Roboflow compilation, Fig. 3)
+├── dataset_finetuning/         # Dataset curation & augmentation  
 │   ├── prepare_dataset.py
 │   └── generate_captions_moondream2.py
 │
@@ -107,7 +107,6 @@ Multi_Drone_Accident_Management/
 ├── tests/                       # Unit tests for the assignment solver, fusion, and routing logic
 │
 ├── docs/
-│   └── assets/                  # README figures (replace expiring GitHub image links here)
 │
 ├── requirements.txt
 ├── environment.yml              # conda alternative
