@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!--
+  simulation/launch/mavros_bridge.launch
+  ========================================
+  Brings up one MAVROS node per drone, namespaced /droneN, bridging each
+  ArduCopter SITL instance (launched via start_sitl_fleet.sh) into ROS so
+  the coordination, perception, and GNC nodes can talk to the vehicles as
+  if they were real aircraft (Section 6.1: "allowing higher-level ROS
+  nodes to treat the simulator as a real aircraft").
+-->
+<launch>
+  <arg name="num_drones" default="4" />
+
+  <!-- Drone 1 : FCU on udp 127.0.0.1:14550 -->
+  <group ns="drone1">
+    <node pkg="mavros" type="mavros_node" name="mavros" output="screen">
+      <param name="fcu_url" value="udp://127.0.0.1:14550@14555" />
+      <param name="gcs_url" value="" />
+      <param name="target_system_id" value="1" />
+      <param name="target_component_id" value="1" />
+      <rosparam command="load" file="$(find mavros)/launch/apm_config.yaml" />
+    </node>
+  </group>
+
+  <!-- Drone 2 : FCU on udp 127.0.0.1:14551 -->
+  <group ns="drone2">
+    <node pkg="mavros" type="mavros_node" name="mavros" output="screen">
+      <param name="fcu_url" value="udp://127.0.0.1:14551@14556" />
+      <param name="gcs_url" value="" />
+      <param name="target_system_id" value="2" />
+      <param name="target_component_id" value="1" />
+      <rosparam command="load" file="$(find mavros)/launch/apm_config.yaml" />
+    </node>
+  </group>
+
+  <!-- Drone 3 : FCU on udp 127.0.0.1:14552 -->
+  <group ns="drone3">
+    <node pkg="mavros" type="mavros_node" name="mavros" output="screen">
+      <param name="fcu_url" value="udp://127.0.0.1:14552@14557" />
+      <param name="gcs_url" value="" />
+      <param name="target_system_id" value="3" />
+      <param name="target_component_id" value="1" />
+      <rosparam command="load" file="$(find mavros)/launch/apm_config.yaml" />
+    </node>
+  </group>
+
+  <!-- Drone 4 : FCU on udp 127.0.0.1:14553 -->
+  <group ns="drone4">
+    <node pkg="mavros" type="mavros_node" name="mavros" output="screen">
+      <param name="fcu_url" value="udp://127.0.0.1:14553@14558" />
+      <param name="gcs_url" value="" />
+      <param name="target_system_id" value="4" />
+      <param name="target_component_id" value="1" />
+      <rosparam command="load" file="$(find mavros)/launch/apm_config.yaml" />
+    </node>
+  </group>
+
+</launch>

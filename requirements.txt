@@ -1,0 +1,32 @@
+# Core
+numpy>=1.24
+scipy>=1.11
+Pillow>=10.0
+opencv-python>=4.8
+
+# Perception agent (YOLOv11n)
+ultralytics>=8.3
+
+# Description agent (BLIP-2 fine-tuning / inference)
+torch>=2.1
+transformers>=4.40
+accelerate>=0.30
+
+# Planning agent (GPT-4o mini)
+openai>=1.30
+
+# Dispatch agent (Piper TTS + MQTT)
+piper-tts>=1.2
+paho-mqtt>=1.6
+
+# Simulation / ROS bridge (install via ROS's own package manager if using
+# a system ROS install; listed here for pip-based / conda ROS setups)
+# rospy            # provided by ROS distribution, not pip
+# mavros_msgs      # provided by ROS distribution, not pip
+# cv_bridge        # provided by ROS distribution, not pip
+
+# Dataset tooling
+roboflow>=1.1
+
+# Dev / testing
+pytest>=8.0

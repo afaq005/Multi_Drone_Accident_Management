@@ -1,0 +1,23 @@
+name: mdam
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy>=1.24
+  - scipy>=1.11
+  - pillow>=10.0
+  - pytorch>=2.1
+  - pytorch-cuda=12.1        # remove/adjust if running CPU-only
+  - pip:
+      - opencv-python>=4.8
+      - ultralytics>=8.3
+      - transformers>=4.40
+      - accelerate>=0.30
+      - openai>=1.30
+      - piper-tts>=1.2
+      - paho-mqtt>=1.6
+      - roboflow>=1.1
+      - pytest>=8.0

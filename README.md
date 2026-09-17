@@ -1,332 +1,379 @@
+# 🚁 Multi-Drone Accident Management
 
-<div align="center">
+**An agentic, end-to-end multi-drone framework for autonomous highway accident detection, reasoning, and emergency response.**
 
-# 🚁 Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](requirements.txt)
+[![ROS Noetic](https://img.shields.io/badge/ROS-Noetic-22314E.svg)](simulation/)
+[![Gazebo 11](https://img.shields.io/badge/Gazebo-11-orange.svg)](simulation/worlds)
 
-**An end-to-end, LLM-guided multi-drone incident management system** — natural language mission planning, autonomous UAV coordination, real-time perception, and vision–language scene reasoning, validated in Gazebo and on physical hardware.
+This repository implements the system described in:
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](#-requirements)
-[![ROS](https://img.shields.io/badge/ROS-Noetic-22314E.svg)](#-requirements)
-[![Simulator](https://img.shields.io/badge/simulator-Gazebo-orange.svg)](#-simulation-environment)
+> *An Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response*
+> Afaq Ahmed, Hassan Eesaar, Muhammad Farhan, YongSuk Yoo, Deok Jin Lee — Jeonbuk National University
 
-
-<img width="3448" height="3196" alt="fig_m" src="https://github.com/user-attachments/assets/5656332e-f645-4611-819a-a6dc253d2f7b"  width="550" />
-
-*Figure: Emergency call → language planning → drone allocation → navigation → detection → scene reasoning → dispatch, in a closed loop.*
-
-</div>
+Five autonomous, communicating agents — **planning, coordination, per-drone perception, scene description, and dispatch** — jointly reason over, allocate, and respond to multiple simultaneous highway accidents without step-by-step human supervision, validated in Gazebo and on a physical M30T drone.
 
 ---
 
-## 📖 Overview
-
-Highway accidents cost roughly **1.19 million lives every year**. Traditional incident management — static cameras, human monitoring, manual dispatch — is slow, has limited coverage, and degrades in poor visibility.
-
-This repository implements a **five-agent, closed-loop framework** where autonomous agents perceive, reason, and act together to manage **multiple simultaneous accidents** without step-by-step human supervision:
-
-| # | Agent | Role | Backbone |
-|---|-------|------|----------|
-| 1 | **Planning Agent** | Parses emergency-call transcripts into geo-coordinates & mission intent | GPT-4o mini |
-| 2 | **Coordination Agent** | Solves drone-to-incident assignment (min-cost matching) | Constrained optimization |
-| 3 | **Perception Agent** ×N | Real-time accident/fire detection on live aerial video, one per drone | YOLOv11n (custom-trained) |
-| 4 | **Description Agent** | Converts detections into structured natural-language scene reports, with confidence-weighted fusion across drones | Fine-tuned BLIP-2 |
-| 5 | **Dispatch Agent** | Converts reports to audio and routes alerts to the nearest rescue center | Piper TTS |
-
-Up to **four autonomous drones**, each flown via **ArduPilot + MAVROS** in `GUIDED` mode, are coordinated end-to-end — from a raw 911-style transcript to a geo-tagged, spoken alert at a rescue center — in about **7.7 seconds median latency**.
-
-The system was validated in **Gazebo simulation** (four simultaneous accident sites) and on **physical hardware** using a DJI M30T drone with RGB + infrared cameras.
+## Table of Contents
+- [Architecture](#architecture)
+- [Repository Structure](#repository-structure)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Agent-by-Agent Guide](#agent-by-agent-guide)
+- [Dataset](#dataset)
+- [Results](#results)
+- [Running the Full Simulation](#running-the-full-simulation)
+- [Testing](#testing)
+- [Status / What's Implemented](#status--whats-implemented)
+- [Citation](#citation)
+- [License](#license)
 
 ---
 
-## 🏗️ System Architecture
+## Architecture
 
+The system decomposes into five autonomous agents communicating over ROS/MQTT (Eq. 1 of the paper):
 
-```
-Emergency Call Transcript
-        │
-        ▼
-┌───────────────────┐        ┌────────────────────────┐
-│  Planning Agent    │──────▶│  Coordination Agent      │
-│  (GPT-4o mini)      │       │  (assignment solver)     │
-└───────────────────┘        └────────────┬─────────────┘
-                                           ▼
-                          ┌────────────────────────────────┐
-                          │  ArduPilot + MAVROS (GUIDED)     │
-                          │  Drone 1 · Drone 2 · Drone 3 · 4  │
-                          └────────────────┬───────────────┘
-                                           ▼
-                     ┌──────────────────────────────────────┐
-                     │  Perception Agents (YOLOv11n, per drone) │
-                     └────────────────────┬─────────────────┘
-                                          ▼
-                     ┌──────────────────────────────────────┐
-                     │  Description Agent (Fine-tuned BLIP-2)   │
-                     │  + confidence-weighted multi-view fusion │
-                     └────────────────────┬─────────────────┘
-                                          ▼
-                     ┌──────────────────────────────────────┐
-                     │  Dispatch Agent (Piper TTS + routing)    │
-                     │  → nearest rescue center                 │
-                     └──────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["📞 Emergency Call<br/>Transcript"] --> B["🧠 Planning Agent<br/>GPT-4o mini"]
+    B --> C["🎯 Coordination Agent<br/>Assignment Solver (Eq. 2)"]
+    C --> D1["🚁 Drone 1"]
+    C --> D2["🚁 Drone 2"]
+    C --> D3["🚁 Drone 3"]
+    C --> D4["🚁 Drone 4"]
+    D1 & D2 & D3 & D4 --> E["👁️ Perception Agents<br/>YOLOv11n"]
+    E --> F["📝 Description Agent<br/>Fine-tuned BLIP-2 (Eq. 23)"]
+    F --> G["📡 Dispatch Agent<br/>Piper TTS + Routing (Eq. 25)"]
+    G --> H1["🏥 Rescue Center A"]
+    G --> H2["🏥 Rescue Center B"]
+    G --> H3["🏥 Rescue Center C"]
+    G --> H4["🏥 Rescue Center D"]
 ```
 
+| # | Agent | Role | Code |
+|---|---|---|---|
+| 1 | **Planning** | Parses free-form emergency-call transcripts into structured coordinates + intent via GPT-4o mini | [`planning_agent/`](planning_agent/) |
+| 2 | **Coordination** | Solves the optimal drone-to-incident assignment problem (Eq. 2) | [`coordination_agent/`](coordination_agent/) |
+| 3 | **Perception** (×N) | Per-drone real-time YOLOv11n accident/fire detection (Eq. 21-22) | [`perception_agent/`](perception_agent/) |
+| 4 | **Description** | Fine-tuned BLIP-2 scene captioning + multi-view confidence-weighted fusion (Eq. 18-20, 23) | [`description_agent/`](description_agent/) |
+| 5 | **Dispatch** | Piper TTS audio alerts + nearest-rescue-center routing (Eq. 24-25) | [`dispatch_agent/`](dispatch_agent/) |
+
+Flight stack (ArduPilot + MAVROS + Gazebo, Section 6.1/6.3) lives in [`simulation/`](simulation/).
+
 ---
 
-## 📂 Repository Structure
-
-> **Note:** folder names below are proposed so the codebase mirrors the five-agent architecture in the paper. Rename existing folders as indicated ("current → new") when reorganizing.
+## Repository Structure
 
 ```
 Multi_Drone_Accident_Management/
 │
 ├── planning_agent/            # GPT-4o mini transcript parsing → structured JSON (coords, intent)
 │   ├── prompt_templates/
+│   │   └── system_prompt.txt
 │   └── llm_waypoint_node.py
 │
 ├── coordination_agent/        # Drone-to-incident assignment solver (Eq. 2), waypoint publishing
-│   └── assignment_solver.py
+│   ├── assignment_solver.py
+│   └── coordination_node.py
 │
-├── perception_agent/          # ⬅ currently "YoloDetection"
+├── perception_agent/          # YOLOv11n incident/fire detection (was "YoloDetection")
 │   ├── train_yolov11n.py
-│   ├── weights/                # link/checkpoint, not committed raw
-│   └── inference_node.py
+│   ├── inference_node.py
+│   └── weights/                # trained checkpoints (not committed — see weights/README.md)
 │
-├── description_agent/         # ⬅ currently "blip_finetuning"
+├── description_agent/         # Fine-tuned BLIP-2 scene description (was "blip_finetuning")
 │   ├── finetune_blip2.py
-│   ├── fusion.py                # confidence-weighted multi-view caption fusion (Eq. 23)
+│   ├── fusion.py               # confidence-weighted multi-view caption fusion (Eq. 23)
 │   └── inference.py
 │
-├── dispatch_agent/             # NOT YET IN REPO — Piper TTS + nearest-rescue-center routing
+├── dispatch_agent/            # Piper TTS + nearest-rescue-center routing
 │   ├── tts_dispatch.py
 │   └── rescue_center_router.py
 │
-├── simulation/                 # NOT YET IN REPO — Gazebo worlds + ArduPilot/MAVROS bridge
-│   ├── worlds/                  # 4-accident-site Gazebo world
-│   ├── launch/                  # sim_vehicle.py / MAVROS launch files
-│   └── gnc_controller/          # per-drone GNC flight controller node
+├── simulation/                 # Gazebo worlds + ArduPilot/MAVROS bridge
+│   ├── worlds/
+│   │   └── four_accident_sites.world
+│   ├── launch/
+│   │   ├── start_sitl_fleet.sh
+│   │   ├── mavros_bridge.launch
+│   │   └── full_pipeline.launch
+│   └── gnc_controller/
+│       └── gnc_node.py
 │
-├── dataset_finetuning/         # Dataset curation & augmentation scripts (Roboflow compilation)
+├── dataset_finetuning/         # Dataset curation & augmentation (Roboflow compilation, Fig. 3)
+│   ├── prepare_dataset.py
+│   └── generate_captions_moondream2.py
 │
 ├── video_inference/            # Real-world video testing (YOLOv11n + BLIP-2/SmolVLM comparison)
+│   └── youtube_video_test.py
 │
-├── model/                       # Shared model utilities / configs
+├── model/                       # Shared config/utilities used by every agent
+│   ├── config.py
+│   └── utils.py
+│
+├── tests/                       # Unit tests for the assignment solver, fusion, and routing logic
 │
 ├── docs/
-│   └── assets/                  # README images (see below — replace expiring GitHub links)
+│   └── assets/                  # README figures (replace expiring GitHub image links here)
 │
-├── requirements.txt             # NOT YET IN REPO
-├── environment.yml              # optional conda alternative
-├── LICENSE                      # NOT YET IN REPO
+├── requirements.txt
+├── environment.yml              # conda alternative
+├── LICENSE
+├── CONTRIBUTING.md
 └── README.md
 ```
 
-**Priority additions** (currently missing from the repo but central to the paper):
-- `planning_agent/` — GPT-4o mini prompt + JSON parsing logic (§6.2)
-- `coordination_agent/` — the assignment-problem solver (Eq. 2)
-- `dispatch_agent/` — Piper TTS + nearest-rescue-center routing (Eq. 24–25)
-- `simulation/` — Gazebo world files and the ArduPilot/MAVROS launch stack (§6.1, §6.3)
-
-Without these, the repo currently reflects only the perception + description sub-components, not the full agentic pipeline the paper describes.
-
 ---
 
-## ⚙️ Requirements
+## Installation
 
-| Component | Version / Notes |
-|---|---|
-| OS | Ubuntu 20.04 / 22.04 |
-| ROS | Noetic (recommended) |
-| Simulator | Gazebo |
-| Flight stack | ArduPilot SITL + MAVROS |
-| Python | ≥ 3.8 |
-| Deep learning | PyTorch, Ultralytics YOLO, Hugging Face Transformers |
-| TTS | Piper TTS |
-| LLM API | OpenAI API key (GPT-4o mini) |
-
-Install Python dependencies:
-
+### Option A — pip
 ```bash
 git clone https://github.com/afaq005/Multi_Drone_Accident_Management.git
 cd Multi_Drone_Accident_Management
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> `requirements.txt` is not yet in the repo — add one pinning at least: `ultralytics`, `transformers`, `torch`, `openai`, `piper-tts`, `rospy` (or note that ROS packages are installed via apt/rosdep, not pip).
+### Option B — conda
+```bash
+conda env create -f environment.yml
+conda activate mdam
+```
+
+### ROS / Gazebo / MAVROS / ArduPilot (required for `simulation/`)
+The flight stack is **not pip-installable** — install via your ROS distribution:
+- ROS Noetic (Ubuntu 20.04) or ROS 2 equivalent
+- Gazebo 11
+- [ArduPilot SITL](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
+- [MAVROS](https://github.com/mavlink/mavros)
+
+Every agent script also runs **standalone without ROS** (see each module's `--help`) for development and testing.
+
+### Environment variables
+```bash
+export OPENAI_API_KEY="sk-..."          # required for the planning agent
+export MDAM_YOLO_WEIGHTS=/path/to/yolov11n_accident_fire.pt
+export MDAM_BLIP2_WEIGHTS=/path/to/blip2_finetuned
+export MDAM_PIPER_VOICE=/path/to/en_US-libritts-high.onnx
+```
+All defaults live in [`model/config.py`](model/config.py).
 
 ---
 
-## 🚀 Getting Started
+## Quick Start
 
-1. **Set up the simulation stack**
-   ```bash
-   # ROS + Gazebo + ArduPilot SITL + MAVROS
-   # (see simulation/README.md once added)
-   ```
-2. **Launch the multi-UAV Gazebo world** (4 drones, 4 accident sites)
-3. **Start the planning agent** to process an emergency-call transcript:
-   ```bash
-   export OPENAI_API_KEY=your_key_here
-   python planning_agent/llm_waypoint_node.py
-   ```
-4. **Run the coordination agent** to resolve drone-to-incident allocation
-5. **Run per-drone YOLOv11n inference** on live aerial streams:
-   ```bash
-   python perception_agent/inference_node.py --drone-id 1
-   ```
-6. **Generate scene summaries** with the fine-tuned BLIP-2 description agent:
-   ```bash
-   python description_agent/inference.py --frame path/to/frame.jpg
-   ```
-7. **Enable audio dispatch** via Piper TTS:
-   ```bash
-   python dispatch_agent/tts_dispatch.py
-   ```
+Each agent works standalone from the command line — useful for testing without a full ROS/Gazebo stack.
 
-> Each command above assumes the proposed folder structure — update paths to match the current repo layout until reorganized.
+**1. Planning agent** — parse an emergency call transcript:
+```bash
+python planning_agent/llm_waypoint_node.py \
+  --transcript "Fly drone 1 to (-165, -1.43, 10), drone 2 to (102.2, 4.1, 10), multi-vehicle collision reported."
+```
 
----
+**2. Coordination agent** — solve the assignment problem (Eq. 2):
+```bash
+python coordination_agent/assignment_solver.py \
+  --incidents '[{"lat":-165,"lon":-1.43,"alt":10},{"lat":102.2,"lon":4.1,"alt":10}]'
+```
 
-## 🧠 Key Contributions
+**3. Perception agent** — run YOLOv11n on a video file:
+```bash
+python perception_agent/inference_node.py --namespace /drone1 --source accident_clip.mp4
+```
 
-- 🗣️ **Natural-language mission planning** — GPT-4o mini extracts incident coordinates and intent directly from free-form emergency-call transcripts.
-- 🎯 **Hybrid dispatch** — supports both fully autonomous (optimization-based) and operator-directed drone-to-incident assignment.
-- 👁️ **Real-time per-drone perception** — custom YOLOv11n detector (2 classes: Accident, Fire) trained on an augmented, curated Roboflow dataset.
-- 📝 **Fine-tuned BLIP-2 scene description** — 1,783 image–caption training pairs, frozen visual encoder, with confidence-weighted fusion when multiple drones observe the same incident.
-- 🔊 **Autonomous dispatch** — Piper TTS + nearest-rescue-center routing, with no human in the loop.
-- 🏗️ **Modular, agentic architecture** — agents communicate over ROS/MQTT, so any component (LLM, vision backbone, control stack) can be swapped independently.
-- 🌍 **Simulation-to-real validation** — tested in Gazebo (4 simultaneous incidents) and physically with a DJI M30T drone (RGB + infrared).
+**4. Description agent** — caption a detected frame:
+```bash
+python description_agent/inference.py --image detected_frame.jpg
+```
+
+**5. Dispatch agent** — route + speak an alert (Eq. 24-25):
+```bash
+python dispatch_agent/tts_dispatch.py \
+  --summary "Head-on collision, no visible fire." \
+  --lat 37.33445 --lon -122.00898 --conf 0.87 --log-p-blip2 -0.4
+```
 
 ---
 
-## 📊 Evaluation Results
+## Agent-by-Agent Guide
 
-### Perception Agent — YOLO model comparison (test set)
+<details>
+<summary><b>🧠 Planning Agent</b> — <code>planning_agent/</code></summary>
 
-| Model | P | R | mAP@50 | Inference (ms) | Params (M) | GFLOPs |
-|---|---|---|---|---|---|---|
-| YOLOv12n | 0.830 | 0.770 | 0.841 | 3.1 | 2.55 | 6.3 |
-| **YOLOv11n** ✅ | 0.813 | **0.826** | **0.874** | 2.2 | 2.58 | 6.3 |
-| YOLOv10n | **0.886** | 0.722 | 0.852 | 2.7 | 2.69 | 8.2 |
-| YOLOv9t | 0.824 | 0.777 | 0.841 | 2.8 | 1.97 | 7.6 |
-| YOLOv8n | 0.830 | 0.803 | 0.860 | 1.9 | 3.01 | 8.1 |
-| YOLOv6n | 0.857 | 0.755 | 0.848 | **1.8** | 4.23 | 11.8 |
-| YOLOv5n | 0.863 | 0.803 | 0.859 | 2.4 | 2.50 | 7.1 |
+Calls GPT-4o mini (`temperature=0`) with a strongly constrained system prompt ([`prompt_templates/system_prompt.txt`](planning_agent/prompt_templates/system_prompt.txt)) to convert a free-form transcript into strict JSON:
 
-**YOLOv11n** was selected for the framework — best recall and mAP@50 among nano variants at competitive compute cost.
+```json
+{"incidents": [{"lat": -165, "lon": -1.43, "alt": 10, "drone": "/drone1"}], "intent": "multi-vehicle collision response"}
+```
 
-### Description Agent — Fine-tuned BLIP-2 (254 held-out test pairs)
+Supports the **hybrid dispatch mode** from Section 6.2: if the operator names specific drones, that mapping is passed straight through; otherwise only coordinates are forwarded and the coordination agent resolves allocation autonomously. On malformed JSON/schema violation or a missing API key, the node exits gracefully (empty incident list) rather than crashing.
+</details>
 
-| Model | BLEU-4 | ROUGE-L | METEOR | CIDEr | SPICE |
-|---|---|---|---|---|---|
-| BLIP-2 (fine-tuned) | 11.70 | 30.12 | 35.05 | 45.05 | 21.42 |
+<details>
+<summary><b>🎯 Coordination Agent</b> — <code>coordination_agent/</code></summary>
 
-### Inference latency: BLIP-2 (fine-tuned) vs. SmolVLM
+Solves Eq. 2 — the optimal drone-to-incident bipartite matching — via the Hungarian algorithm (`scipy.optimize.linear_sum_assignment`), with a greedy nearest-neighbor fallback if SciPy is unavailable. Publishes `geometry_msgs/PoseArray` on `/droneN/waypoints`, rebroadcast 4× at 2 Hz to overcome packet loss (Section 6.2).
+</details>
 
-| Scenario | SmolVLM (s) | BLIP-2 FT (s) |
+<details>
+<summary><b>👁️ Perception Agent</b> — <code>perception_agent/</code></summary>
+
+Trains/runs YOLOv11n on the 2-class `{accident, fire}` dataset. Implements the detection trigger of Eq. 21 (confidence threshold τ=0.5) and the deduplication rule of Eq. 22 (persist a detection only if the drone has moved >10 m since the last stored event, or on first detection). Publishes `std_msgs/Bool` on `/droneN/yolo_detection/detected`.
+</details>
+
+<details>
+<summary><b>📝 Description Agent</b> — <code>description_agent/</code></summary>
+
+Fine-tunes `Salesforce/blip2-opt-2.7b` with the vision encoder **and Q-Former frozen** (paper: "holding its visual encoder frozen to preserve pre-trained feature representations"), matching the loss decomposition of Eq. 18-20. `fusion.py` implements the confidence-weighted multi-view fusion of Eq. 23 — when several drones observe the same incident, their captions are merged into a single report, anchored on the highest-confidence view with salient details from secondary views appended.
+</details>
+
+<details>
+<summary><b>📡 Dispatch Agent</b> — <code>dispatch_agent/</code></summary>
+
+Computes the severity score of Eq. 24 (`sigmoid(α·conf_YOLO + β·log p_BLIP2)`), routes each alert to the nearest rescue center via Eq. 25 (haversine distance over `RESCUE_CENTERS` in `model/config.py`), synthesizes audio with Piper TTS, and publishes the JSON payload over MQTT.
+</details>
+
+<details>
+<summary><b>🛩️ Simulation / Flight Stack</b> — <code>simulation/</code></summary>
+
+- `worlds/four_accident_sites.world` — Gazebo SDF world with 4 geographically separated accident sites (static obstacles + a vehicle each), per Section 6.1.
+- `launch/start_sitl_fleet.sh` — spins up 4 ArduCopter SITL instances (`sim_vehicle.py -I0..3`).
+- `launch/mavros_bridge.launch` — bridges each SITL instance into ROS as `/droneN/mavros/...`.
+- `gnc_controller/gnc_node.py` — per-drone GNC state machine (arm → climb to 10 m AGL → follow `/droneN/waypoints` → 360° yaw sweep on arrival), publishing setpoints at 2 Hz per Section 6.3.
+</details>
+
+---
+
+## Dataset
+
+Two datasets are used (Section 4.1, Fig. 3):
+
+| Dataset | Purpose | Size |
 |---|---|---|
-| Accident Case 1 | 3.63 | **1.413** |
-| Accident Case 2 | 3.59 | **1.349** |
-| Fire Case 1 | 3.27 | **1.912** |
-| Fire Case 2 | 3.76 | **1.413** |
+| YOLO detection dataset | 2 public Roboflow datasets ([donghee/test-d95ea](https://universe.roboflow.com/donghee/test-d95ea), [kk-qg4vu/car-fires-detection](https://universe.roboflow.com/kk-qg4vu/car-fires-detection)) + prior-study dataset ([Ahmed et al. 2024](https://doi.org/10.3390/drones8120741)) | 2,548 base → 4,331 after augmentation (3,566 train / 511 val / 254 test) |
+| BLIP-2 fine-tuning pairs | Same source images, captioned via `moondream2` | 1,783 train / 511 val / 254 test |
 
-### End-to-end pipeline latency (median, per stage)
+> **Per the paper's Data Availability statement:** both datasets and code will be provided upon request to the authors, as this is part of ongoing research. This repo includes the **scripts** to reproduce compilation/augmentation/captioning ([`dataset_finetuning/`](dataset_finetuning/)) — raw images are not redistributed here.
 
-| Stage | Median Time (ms) |
+Reproduce the pipeline:
+```bash
+python dataset_finetuning/prepare_dataset.py \
+  --sources roboflow_accident/ roboflow_fire/ previous_study/ \
+  --output dataset_finetuning/compiled --augment
+
+python dataset_finetuning/generate_captions_moondream2.py \
+  --split-dir dataset_finetuning/compiled/train/images \
+  --output dataset_finetuning/blip2_data/train.jsonl
+```
+
+**Pretrained weights** are not committed (size). See [`perception_agent/weights/README.md`](perception_agent/weights/README.md) for download/training instructions once released.
+
+---
+
+## Results
+
+### YOLO model comparison (Table 1) — YOLOv11n selected for deployment
+| Model | mAP@50 (All) | Recall (All) | Inference (ms) | Params (M) | GFLOPs |
+|---|---|---|---|---|---|
+| YOLOv12n | 0.841 | 0.770 | 3.1 | 2.55 | 6.3 |
+| **YOLOv11n** ✅ | **0.874** | **0.826** | 2.2 | 2.58 | 6.3 |
+| YOLOv10n | 0.852 | 0.722 | 2.7 | 2.69 | 8.2 |
+| YOLOv9t | 0.841 | 0.777 | 2.8 | 1.97 | 7.6 |
+| YOLOv8n | 0.860 | 0.803 | 1.9 | 3.01 | 8.1 |
+
+### Fine-tuned BLIP-2 (Table 4, 254 test pairs)
+| BLEU-4 | ROUGE-L | METEOR | CIDEr | SPICE |
+|---|---|---|---|---|
+| 11.70 | 30.12 | 35.05 | 45.05 | 21.42 |
+
+### Inference-time comparison (Table 3) — BLIP-2 FT vs SmolVLM
+| Case | SmolVLM (s) | BLIP2-Finetuned (s) |
+|---|---|---|
+| Accident 1 | 3.63 | 1.413 |
+| Accident 2 | 3.59 | 1.349 |
+| Fire 1 | 3.27 | 1.912 |
+| Fire 2 | 3.76 | 1.413 |
+
+### End-to-end latency (Table 5) — 7.7 s total, RTX 3090 @ FP16
+| Stage | Median (ms) |
 |---|---|
 | GPT-4o mini waypoint extraction | 620 |
 | ROS topic propagation | 30 |
-| Take-off & cruise to first waypoint | 5,900 |
-| YOLO inference (640×480, RTX 3090 FP16) | 38 |
-| BLIP-2 fine-tuned caption | 1,100 |
+| Take-off & cruise to first WP | 5900 |
+| YOLO inference (640×480) | 38 |
+| BLIP-2 fine-tuned caption | 1100 |
 | MQTT push to server | 8 |
-| **Total end-to-end** | **~7,700 (7.7 s)** |
 
-> Latency figures were measured on an RTX 3090; results will vary with different hardware.
-
----
-
-## 🎥 Real-World & Physical Validation
-
-- **YouTube video testing**: 4 real-world videos (2 accident, 2 fire) — YOLOv11n detection followed by BLIP-2 fine-tuned captioning, benchmarked against SmolVLM.
-- **Physical outdoor testing**: DJI M30T drone, RGB + infrared, two physically staged collision scenarios — confirms perception and description agents generalize from simulation to real sensing hardware without architectural changes.
-
+> ⚠️ Latency figures are hardware-specific (RTX 3090); portability to other GPUs/edge devices is not guaranteed.
 
 ---
 
-## 📦 Datasets & Pretrained Weights
-
-| Asset | Status | Notes |
-|---|---|---|
-| YOLO detection dataset (Accident/Fire, 2,548 images → 4,331 augmented) | Compiled from 2 public Roboflow datasets + prior study dataset | Add links to [Roboflow dataset 1](https://universe.roboflow.com/donghee/test-d95ea), [Roboflow dataset 2](https://universe.roboflow.com/kk-qg4vu/car-fires-detection) |
-| BLIP-2 fine-tuning dataset (1,783 train / 511 val / 254 test image–caption pairs) | Generated via moondream2 captioning | Available upon request — add contact/request process here |
-| YOLOv11n trained weights | **Not yet linked** | Add a GitHub Release or Hugging Face Hub link |
-| Fine-tuned BLIP-2 checkpoint (`Salesforce/blip2-opt-2.7b` base) | **Not yet linked** | Add a Hugging Face Hub link |
-
----
-
-## 🖼️ Fixing the README Images
-
-The current README embeds a `private-user-images.githubusercontent.com` link containing a **short-lived signed JWT** — it will expire and break. Replace it by:
+## Running the Full Simulation
 
 ```bash
-mkdir -p docs/assets
-# move your local copies of the figures here, e.g.:
-# docs/assets/fig1_framework_overview.png
-# docs/assets/fig2_gazebo_pipeline.png
-# docs/assets/fig8_physical_testing.png
-git add docs/assets
+# 1. Launch Gazebo with the 4-accident-site world
+gazebo simulation/worlds/four_accident_sites.world &
+
+# 2. Spin up the ArduCopter SITL fleet
+bash simulation/launch/start_sitl_fleet.sh &
+
+# 3. Bring up MAVROS bridges + GNC + perception + coordination + planning agents
+roslaunch simulation/launch/full_pipeline.launch
+
+# 4. Publish an emergency call transcript to kick off a mission
+rostopic pub /llm_waypoint_request std_msgs/String \
+  "data: 'Fly drone 1 to (-165, -1.43, 10), drone 2 to (102.2, 4.1, 10)'"
 ```
 
-Then reference them with relative paths, exactly as done in this README (`docs/assets/...`), so images render permanently regardless of upload session.
+---
+
+## Testing
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
+Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-view caption fusion (Eq. 23), and dispatch severity/routing (Eq. 24-25) — the pure-Python logic that's testable without ROS/GPU hardware.
 
 ---
 
-## 🔭 Roadmap / Limitations (from the paper)
+## Status / What's Implemented
 
-- [ ] Robustness testing under night, fog, and rain conditions
-- [ ] Reduce onboard inference latency (e.g., mask token distillation)
-- [ ] Temporal cross-attention for consistent multi-frame scene summaries
-- [ ] Extend coordination agent to drone failure / dynamic mid-mission re-allocation and incident counts exceeding available drones
-- [ ] Improve planning agent's ability to infer allocation from ambiguous or partially specified transcripts (currently relies on explicit per-drone assignment when given)
-- [ ] Speech-aware language models to compensate for ASR errors in noisy emergency-call audio
+| Component | Status |
+|---|---|
+| Planning agent (GPT-4o mini) | ✅ Implemented |
+| Coordination agent (Eq. 2 solver) | ✅ Implemented, unit-tested |
+| Perception agent (YOLOv11n train + inference) | ✅ Implemented (bring your own trained weights) |
+| Description agent (BLIP-2 fine-tune + fusion) | ✅ Implemented, unit-tested |
+| Dispatch agent (Piper TTS + routing) | ✅ Implemented, unit-tested |
+| Gazebo world / ArduPilot / MAVROS launch files | ✅ Implemented (requires local ROS/Gazebo install to run) |
+| GNC flight controller | ✅ Implemented |
+| Dataset compilation / augmentation scripts | ✅ Implemented |
+| Trained checkpoints (YOLOv11n, BLIP-2) | ⏳ Available upon request (see Dataset section) |
+| Raw datasets | ⏳ Available upon request (see Dataset section) |
 
 ---
 
-## 📄 Citation
+## Citation
 
 ```bibtex
 @article{ahmed2026agentic,
   title   = {An Agentic Multi-Drone Framework for Autonomous Multi-Accident Detection, Reasoning, and Response},
   author  = {Ahmed, Afaq and Eesaar, Hassan and Farhan, Muhammad and Yoo, YongSuk and Lee, Deok Jin},
-  journal = {[add venue / arXiv ID once available]},
+  journal = {Preprint},
   year    = {2026}
 }
 ```
 
----
-
-## 🤝 Contributing
-
-Contributions are welcome — especially for the missing `planning_agent/`, `coordination_agent/`, `dispatch_agent/`, and `simulation/` modules described above. Please open an issue before submitting a large PR so the scope can be discussed.
+*(Update with the final DOI/arXiv ID once available.)*
 
 ---
 
-## 📬 Contact
+## License
 
-For questions, collaboration, or issues, please contact the authors:
-📧 **afaq@jbnu.ac.kr**
-
-Affiliated with the **Center for Autonomous Intelligence and e-Mobility**, Jeonbuk National University.
-
----
-
-## 📜 License
-
-This project is licensed under the [MIT License](LICENSE) — *(update to match your actual chosen license; none is currently set in the repo)*.
-
-<div align="center">
-
-*Built with 🛰️ ROS · 🐍 Python · 🤖 PyTorch · 🦾 ArduPilot*
-
-</div>
+Source code is released under the [MIT License](LICENSE). Datasets and pretrained checkpoints are available upon request per the paper's Data Availability statement and retain their own terms — see [LICENSE](LICENSE) for details.
