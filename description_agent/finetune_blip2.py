@@ -2,19 +2,11 @@
 """
 description_agent/finetune_blip2.py
 ====================================
-Fine-tunes Salesforce/blip2-opt-2.7b on the 1,783 train / 511 val / 254 test
-image-caption pairs described in Section 4.1, with the visual encoder frozen
-to preserve pretrained feature representations (paper abstract / Section 5.2).
-
-Implements the combined loss of Eq. 18:
-    L_T = L_ITC + L_ITM + L_ITG
-(handled internally by BLIP-2's pretraining objective; here we fine-tune
-stage-2 generation, Eq. 19-20, since Q-Former + vision encoder stay frozen
-and only the language-generation head/adapter is updated against the
-image-captioning cross-entropy loss L_gen = L_CE(LLM_lang(Y_q), txt)).
+Fine-tunes Salesforce/blip2-opt-2.7b on image-caption pairs using float32 precision
+to match the model configuration.
 
 Expected data format — a JSONL file with one record per line:
-    {"image": "path/to/frame.jpg", "caption": "A car accident scene on the highway..."}
+    {"image": "path/to/frame.jpg", "caption": "A description of the scene..."}
 
 Usage:
     python finetune_blip2.py --train data/train.jsonl --val data/val.jsonl \
@@ -25,53 +17,85 @@ import json
 import os
 import sys
 
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+from transformers import (
+    Blip2ForConditionalGeneration,
+    Blip2Processor,
+    Trainer,
+    TrainingArguments,
+)
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from model.config import BLIP2_BASE_MODEL, BLIP2_FINETUNE_EPOCHS  # noqa: E402
-from model.utils import get_logger  # noqa: E402
+try:
+    from model.config import BLIP2_BASE_MODEL, BLIP2_FINETUNE_EPOCHS
+    from model.utils import get_logger
+    logger = get_logger("description_agent.finetune")
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("description_agent.finetune")
+    BLIP2_BASE_MODEL = "Salesforce/blip2-opt-2.7b"
+    BLIP2_FINETUNE_EPOCHS = 5
 
-logger = get_logger("description_agent.finetune")
 
+class CaptionDataset(Dataset):
+    """Dataset wrapper around a JSONL file containing {image, caption} records."""
 
-class CaptionDataset:
-    """Minimal torch Dataset wrapper around a JSONL {image, caption} file."""
-
-    def __init__(self, jsonl_path: str, processor):
-        import torch  # noqa: F401
-        from PIL import Image
-
+    def __init__(self, jsonl_path: str):
         self.records = []
         with open(jsonl_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     self.records.append(json.loads(line))
-        self.processor = processor
-        self._Image = Image
 
     def __len__(self):
         return len(self.records)
 
     def __getitem__(self, idx):
         record = self.records[idx]
-        image = self._Image.open(record["image"]).convert("RGB")
-        encoding = self.processor(
-            images=image, text=record["caption"], padding="max_length",
-            truncation=True, return_tensors="pt",
+        image = Image.open(record["image"]).convert("RGB")
+        caption = record["caption"]
+        return {"image": image, "caption": caption}
+
+
+class Blip2DataCollator:
+    """Collates and processes raw dataset items using Blip2Processor."""
+
+    def __init__(self, processor: Blip2Processor):
+        self.processor = processor
+
+    def __call__(self, batch):
+        images = [item["image"] for item in batch]
+        captions = [item["caption"] for item in batch]
+
+        # Process images and text targets
+        inputs = self.processor(
+            images=images,
+            text=captions,
+            padding=True,
+            return_tensors="pt"
         )
-        encoding = {k: v.squeeze() for k, v in encoding.items()}
-        encoding["labels"] = encoding["input_ids"].clone()
-        return encoding
+
+        labels = inputs["input_ids"].clone()
+        # Replace padding token id with -100 to ignore it in loss calculation
+        pad_token_id = self.processor.tokenizer.pad_token_id
+        if pad_token_id is not None:
+            labels[labels == pad_token_id] = -100
+
+        inputs["labels"] = labels
+        return inputs
 
 
 def freeze_vision_encoder(model):
-    """Freezes the ViT vision encoder AND the Q-Former, matching the
-    paper's statement that fine-tuning "holds its visual encoder frozen
-    to preserve pre-trained feature representations." Only the
-    language-model adapter/projection layers remain trainable."""
+    """Freezes the ViT vision encoder AND Q-Former to train language adaptation layers."""
     for param in model.vision_model.parameters():
         param.requires_grad = False
     for param in model.qformer.parameters():
         param.requires_grad = False
+
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     logger.info(f"Trainable parameters: {trainable:,} / {total:,}")
@@ -80,30 +104,26 @@ def freeze_vision_encoder(model):
 
 def finetune(train_path: str, val_path: str, epochs: int, output_dir: str,
              batch_size: int, lr: float):
-    try:
-        import torch
-        from transformers import (
-            Blip2ForConditionalGeneration,
-            Blip2Processor,
-            Trainer,
-            TrainingArguments,
-        )
-    except ImportError:
-        logger.error("transformers/torch not installed. `pip install transformers torch`.")
-        raise SystemExit(1)
-
-    logger.info(f"Loading base model {BLIP2_BASE_MODEL} ...")
+    logger.info(f"Loading base model {BLIP2_BASE_MODEL}...")
     processor = Blip2Processor.from_pretrained(BLIP2_BASE_MODEL)
+    
+    # Force tokenizer pad_token if not defined (common with OPT models)
+    if processor.tokenizer.pad_token is None:
+        processor.tokenizer.pad_token = processor.tokenizer.eos_token
+
+    # Load in float32 precision matching config torch_dtype
     model = Blip2ForConditionalGeneration.from_pretrained(
         BLIP2_BASE_MODEL,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        torch_dtype=torch.float32,
     )
     model = freeze_vision_encoder(model)
 
-    train_dataset = CaptionDataset(train_path, processor)
-    val_dataset = CaptionDataset(val_path, processor) if val_path else None
+    train_dataset = CaptionDataset(train_path)
+    val_dataset = CaptionDataset(val_path) if val_path else None
     logger.info(f"Train pairs: {len(train_dataset)}, Val pairs: "
                 f"{len(val_dataset) if val_dataset else 0}")
+
+    collator = Blip2DataCollator(processor)
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -114,7 +134,7 @@ def finetune(train_path: str, val_path: str, epochs: int, output_dir: str,
         eval_strategy="epoch" if val_dataset else "no",
         save_strategy="epoch",
         logging_steps=10,
-        fp16=torch.cuda.is_available(),
+        fp16=False,  # Enforce float32 as defined in config
         report_to=[],
         save_total_limit=2,
         load_best_model_at_end=bool(val_dataset),
@@ -125,9 +145,10 @@ def finetune(train_path: str, val_path: str, epochs: int, output_dir: str,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        data_collator=collator,
     )
 
-    logger.info(f"Starting fine-tuning for {epochs} epochs (Eq. 19-20 objective) ...")
+    logger.info(f"Starting fine-tuning for {epochs} epochs...")
     trainer.train()
 
     os.makedirs(output_dir, exist_ok=True)
