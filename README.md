@@ -321,7 +321,7 @@ Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-
 }
 ```
 
-*(Update with the final DOI/arXiv ID once available.)*
+*(Will be Updated.)*
 
 ---
 
