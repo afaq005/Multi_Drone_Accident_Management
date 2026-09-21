@@ -6,37 +6,27 @@ perception_agent/inference_node.py
 Implements A_perc^(j) from Section 6.4, Eq. 21 and Eq. 22.
 
 Each drone runs an independent instance of this node against its own
-camera topic (e.g. /drone1_camera/image_raw). For every frame:
+camera topic.
 
-  1. Runs YOLOv11n inference, thresholded at tau_conf = 0.5 (Eq. 21):
+For every frame:
 
-         a_perc = 1
-         if max_c conf_c(frame) >= tau_conf
-         else 0
+1. Run YOLOv11n inference using tau_conf = 0.5 (Eq. 21).
+2. Maintain a rolling window of recent detected annotated frames.
+3. Apply the spatial deduplication rule of Eq. 22.
+4. Publish a persisted event only when a valid incident assignment
+   is available from the coordination agent.
 
-  2. Maintains a rolling window of up to 3 recent detected,
-     annotated frames.
-
-  3. If a detection fires AND the drone has moved more than
-     d_min = 10 m since the previous persisted event (Eq. 22),
-     the event is persisted and published for downstream
-     description processing.
+ROS inputs:
+    /droneN/mavros/local_position/pose
+    /droneN/assigned_incident
+    /droneN_camera/image_raw
 
 ROS outputs:
     /droneN/yolo_detection/detected
-        std_msgs/Bool
-        Published True only when a new deduplicated event is persisted.
-
     /droneN/yolo_detection/annotated
-        sensor_msgs/Image
-        Latest YOLO-annotated camera frame.
-
     /droneN/yolo_detection/event
-        std_msgs/String
-        JSON metadata for the persisted event.
 
-Run standalone on a video for testing:
-
+Standalone:
     python perception_agent/inference_node.py \
         --source path/to/video.mp4 \
         --namespace /drone1
@@ -70,9 +60,7 @@ from model.utils import (  # noqa: E402
     get_logger,
 )
 
-logger = get_logger(
-    "perception_agent.inference"
-)
+logger = get_logger("perception_agent.inference")
 
 
 class PerceptionAgent:
@@ -93,7 +81,6 @@ class PerceptionAgent:
             Tuple[float, float, float]
         ] = None
 
-        # Stores the most recent detected annotated frames.
         self.frame_buffer = deque(
             maxlen=DETECTION_EVENT_WINDOW
         )
@@ -102,7 +89,6 @@ class PerceptionAgent:
 
         try:
             from ultralytics import YOLO
-
         except ImportError:
             logger.error(
                 "ultralytics not installed. "
@@ -113,90 +99,61 @@ class PerceptionAgent:
         if not os.path.exists(weights_path):
             logger.warning(
                 f"Weights not found at {weights_path}. "
-                "Train the model first with train_yolov11n.py "
-                "or provide a valid path with --weights."
+                "Train the model first or provide --weights."
             )
-
             self.model = None
-
         else:
-            self.model = YOLO(
-                weights_path
+            self.model = YOLO(weights_path)
+            logger.info(
+                f"[{self.namespace}] Loaded YOLO weights: {weights_path}"
             )
 
-            logger.info(
-                f"[{self.namespace}] Loaded YOLO weights: "
-                f"{weights_path}"
-            )
+    def reset_event_state(self):
+        """
+        Reset event-deduplication state when the drone receives a
+        different incident assignment.
+        """
+        self.last_detection_pos = None
+        self.frame_buffer.clear()
+        self.first_run = True
+
+        logger.info(
+            f"[{self.namespace}] Detection state reset "
+            "for new incident assignment."
+        )
 
     def _max_class_confidence(
         self,
         result,
     ) -> Tuple[float, Optional[str]]:
-        """
-        Return max_c conf_c(frame) and its corresponding class name,
-        as used by Eq. 21.
-        """
+        """Return max_c conf_c(frame) and its corresponding class."""
 
-        if (
-            result.boxes is None
-            or len(result.boxes) == 0
-        ):
+        if result.boxes is None or len(result.boxes) == 0:
             return 0.0, None
 
-        confs = (
-            result.boxes.conf.tolist()
-        )
-
-        cls_ids = (
-            result.boxes.cls.tolist()
-        )
+        confs = result.boxes.conf.tolist()
+        cls_ids = result.boxes.cls.tolist()
 
         best_idx = max(
             range(len(confs)),
             key=lambda i: confs[i],
         )
 
-        class_id = int(
-            cls_ids[best_idx]
-        )
+        class_id = int(cls_ids[best_idx])
 
         class_name = result.names.get(
             class_id,
             "unknown",
         )
 
-        return (
-            float(confs[best_idx]),
-            class_name,
-        )
+        return float(confs[best_idx]), class_name
 
     def process_frame(
         self,
         frame,
-        drone_position: Tuple[
-            float,
-            float,
-            float,
-        ],
+        drone_position: Tuple[float, float, float],
     ) -> dict:
-        """
-        Run Eq. 21 detection and Eq. 22 spatial deduplication.
-
-        Parameters
-        ----------
-        frame:
-            NumPy BGR image from OpenCV or cv_bridge.
-
-        drone_position:
-            Current local Cartesian UAV position (x, y, z).
-
-        Returns
-        -------
-        dict
-            Detection state and, when applicable, persisted-event
-            metadata for downstream processing.
-        """
+        """Run Eq. 21 detection and Eq. 22 spatial deduplication."""
 
         if self.model is None:
             return {
@@ -215,38 +172,32 @@ class PerceptionAgent:
 
         result = results[0]
 
-        max_conf, class_name = (
-            self._max_class_confidence(
-                result
-            )
+        max_conf, class_name = self._max_class_confidence(
+            result
         )
 
         # Eq. 21
-        a_perc = int(
-            max_conf
-            >= self.conf_threshold
+        detected = (
+            max_conf >= self.conf_threshold
         )
 
-        annotated_frame = (
-            result.plot()
-        )
+        annotated_frame = result.plot()
 
         outcome = {
             "namespace": self.namespace,
-            "detected": bool(a_perc),
+            "detected": bool(detected),
             "confidence": max_conf,
             "class": class_name,
             "annotated_frame": annotated_frame,
             "persisted": False,
         }
 
-        # No incident detection in this frame.
-        if not a_perc:
+        if not detected:
             return outcome
 
         timestamp = time.time()
 
-        # Keep only detected frames in the event window.
+        # Store recent detected frames only.
         self.frame_buffer.append(
             {
                 "frame": annotated_frame,
@@ -257,14 +208,11 @@ class PerceptionAgent:
             }
         )
 
-        # Eq. 22:
-        # persist the first detection, then persist subsequent events
-        # only after sufficient spatial displacement.
+        # Eq. 22
         should_persist = (
             self.first_run
             or (
-                self.last_detection_pos
-                is not None
+                self.last_detection_pos is not None
                 and euclidean_distance(
                     drone_position,
                     self.last_detection_pos,
@@ -276,16 +224,9 @@ class PerceptionAgent:
         if not should_persist:
             return outcome
 
-        event_id = (
-            uuid.uuid4()
-            .hex[:8]
-            .upper()
-        )
+        event_id = uuid.uuid4().hex[:8].upper()
 
-        self.last_detection_pos = (
-            drone_position
-        )
-
+        self.last_detection_pos = drone_position
         self.first_run = False
 
         outcome["persisted"] = True
@@ -304,15 +245,9 @@ class PerceptionAgent:
             ),
             "coordinate_mode": "local",
             "position": {
-                "x": float(
-                    drone_position[0]
-                ),
-                "y": float(
-                    drone_position[1]
-                ),
-                "z": float(
-                    drone_position[2]
-                ),
+                "x": float(drone_position[0]),
+                "y": float(drone_position[1]),
+                "z": float(drone_position[2]),
             },
             "timestamp": timestamp,
             "frame_window_size": len(
@@ -321,21 +256,15 @@ class PerceptionAgent:
         }
 
         logger.info(
-            f"[{self.namespace}] "
-            f"Persisted event {event_id}: "
+            f"[{self.namespace}] Persisted event {event_id}: "
             f"{class_name} "
             f"(conf={max_conf:.2f}) "
             f"at {drone_position}; "
-            f"frame_window="
-            f"{len(self.frame_buffer)}"
+            f"frame_window={len(self.frame_buffer)}"
         )
 
         return outcome
 
-
-# --------------------------------------------------------------------------
-# ROS integration
-# --------------------------------------------------------------------------
 
 def run_ros_node(
     namespace: str,
@@ -344,18 +273,12 @@ def run_ros_node(
     import rospy
 
     from cv_bridge import CvBridge
-    from geometry_msgs.msg import (
-        PoseStamped,
-    )
+    from geometry_msgs.msg import PoseStamped
     from sensor_msgs.msg import Image
-    from std_msgs.msg import (
-        Bool,
-        String,
-    )
+    from std_msgs.msg import Bool, String
 
     rospy.init_node(
-        f"perception_agent_"
-        f"{namespace.strip('/')}",
+        f"perception_agent_{namespace.strip('/')}",
         anonymous=False,
     )
 
@@ -367,85 +290,92 @@ def run_ros_node(
     )
 
     state = {
-    "position": (
-        0.0,
-        0.0,
-        0.0,
-    ),
-    "assignment": None,
+        "position": (0.0, 0.0, 0.0),
+        "assignment": None,
     }
 
-    # Event trigger for downstream description processing.
     detection_pub = rospy.Publisher(
-        f"{namespace}/"
-        f"yolo_detection/detected",
+        f"{namespace}/yolo_detection/detected",
         Bool,
         queue_size=10,
     )
 
-    # YOLO visualization output.
     annotated_pub = rospy.Publisher(
-        f"{namespace}/"
-        f"yolo_detection/annotated",
+        f"{namespace}/yolo_detection/annotated",
         Image,
         queue_size=1,
     )
 
-    # Structured event metadata for downstream agents.
     event_pub = rospy.Publisher(
-        f"{namespace}/"
-        f"yolo_detection/event",
+        f"{namespace}/yolo_detection/event",
         String,
         queue_size=10,
     )
 
     def _pose_cb(msg):
-
         state["position"] = (
             msg.pose.position.x,
             msg.pose.position.y,
             msg.pose.position.z,
         )
-    
+
     def _assignment_cb(msg):
-      """Cache the current mission/incident assignment for this drone."""
-  
-      try:
-          assignment = json.loads(
-              msg.data
-          )
-  
-      except json.JSONDecodeError:
-          logger.error(
-              f"[{namespace}] Invalid assignment JSON: "
-              f"{msg.data!r}"
-          )
-          return
-  
-      assigned_drone = assignment.get(
-          "drone_id"
-      )
-  
-      if (
-          assigned_drone is not None
-          and assigned_drone != namespace
-      ):
-          logger.warning(
-              f"[{namespace}] Ignoring assignment intended for "
-              f"{assigned_drone}"
-          )
-          return
-  
-      state["assignment"] = assignment
-  
-      logger.info(
-          f"[{namespace}] Assignment received: "
-          f"mission_id={assignment.get('mission_id')}, "
-          f"incident_id={assignment.get('incident_id')}"
-      )
+        try:
+            assignment = json.loads(
+                msg.data
+            )
+        except json.JSONDecodeError:
+            logger.error(
+                f"[{namespace}] Invalid assignment JSON: {msg.data!r}"
+            )
+            return
+
+        assigned_drone = assignment.get(
+            "drone_id"
+        )
+
+        if (
+            assigned_drone is not None
+            and assigned_drone != namespace
+        ):
+            logger.warning(
+                f"[{namespace}] Ignoring assignment "
+                f"intended for {assigned_drone}"
+            )
+            return
+
+        new_incident_id = assignment.get(
+            "incident_id"
+        )
+
+        if not new_incident_id:
+            logger.error(
+                f"[{namespace}] Assignment missing incident_id."
+            )
+            return
+
+        previous_assignment = state.get(
+            "assignment"
+        )
+
+        previous_incident_id = (
+            previous_assignment.get("incident_id")
+            if previous_assignment
+            else None
+        )
+
+        if new_incident_id != previous_incident_id:
+            agent.reset_event_state()
+
+        state["assignment"] = assignment
+
+        logger.info(
+            f"[{namespace}] Assignment received: "
+            f"mission_id={assignment.get('mission_id')}, "
+            f"incident_id={new_incident_id}"
+        )
 
     def _image_cb(msg):
-
         frame = bridge.imgmsg_to_cv2(
             msg,
             desired_encoding="bgr8",
@@ -456,158 +386,116 @@ def run_ros_node(
             state["position"],
         )
 
-        annotated_frame = (
-            outcome.get(
-                "annotated_frame"
-            )
+        annotated_frame = outcome.get(
+            "annotated_frame"
         )
 
-        # Republish the latest annotated image for visualization
-        # and downstream description processing.
         if annotated_frame is not None:
-
-            annotated_msg = (
-                bridge.cv2_to_imgmsg(
-                    annotated_frame,
-                    encoding="bgr8",
-                )
+            annotated_msg = bridge.cv2_to_imgmsg(
+                annotated_frame,
+                encoding="bgr8",
             )
-
-            annotated_msg.header = (
-                msg.header
-            )
-
+            annotated_msg.header = msg.header
             annotated_pub.publish(
                 annotated_msg
             )
 
-        # Trigger downstream processing ONLY for a newly persisted
-        # event, not for every repeated detection frame.
-        # if outcome.get(
-        #     "persisted",
-        #     False,
-        # ):
-
-        #     event = outcome["event"]
-
-        #     event_pub.publish(
-        #         String(
-        #             data=json.dumps(
-        #                 event
-        #             )
-        #         )
-        #     )
-
-        #     detection_pub.publish(
-        #         Bool(
-        #             data=True
-        #         )
-        #     )
-        if outcome.get(
+        if not outcome.get(
             "persisted",
             False,
         ):
-      
-            event = outcome["event"]
-        
-            assignment = state.get(
-                "assignment"
+            return
+
+        assignment = state.get(
+            "assignment"
+        )
+
+        if (
+            assignment is None
+            or not assignment.get(
+                "incident_id"
             )
-        
-            if assignment is not None:
-        
-                event["mission_id"] = (
-                    assignment.get(
-                        "mission_id"
-                    )
-                )
-        
-                event["incident_id"] = (
-                    assignment.get(
-                        "incident_id"
-                    )
-                )
-        
-                event["incident_index"] = (
-                    assignment.get(
-                        "incident_index"
-                    )
-                )
-        
-                event["assigned_target"] = (
-                    assignment.get(
-                        "target"
-                    )
-                )
-        
-            else:
-                logger.warning(
-                    f"[{namespace}] Persisted event "
-                    f"{event.get('event_id')} has no current "
-                    "assigned_incident metadata."
-                )
-        
-            event_pub.publish(
-                String(
-                    data=json.dumps(
-                        event
-                    )
+        ):
+            logger.warning(
+                f"[{namespace}] Detection was persisted locally, "
+                "but no valid assigned_incident metadata is available; "
+                "downstream publication skipped."
+            )
+            return
+
+        event = outcome["event"]
+
+        event["mission_id"] = assignment.get(
+            "mission_id"
+        )
+
+        event["incident_id"] = assignment[
+            "incident_id"
+        ]
+
+        event["incident_index"] = assignment.get(
+            "incident_index"
+        )
+
+        event["assigned_target"] = assignment.get(
+            "target"
+        )
+
+        event_pub.publish(
+            String(
+                data=json.dumps(
+                    event
                 )
             )
-        
-            detection_pub.publish(
-                Bool(
-                    data=True
-                )
-            )
-      
+        )
+
+        detection_pub.publish(
+            Bool(data=True)
+        )
+
     rospy.Subscriber(
-        f"{namespace}/"
-        f"mavros/local_position/pose",
+        f"{namespace}/mavros/local_position/pose",
         PoseStamped,
         _pose_cb,
         queue_size=10,
     )
+
     rospy.Subscriber(
-    f"{namespace}/assigned_incident",
-    String,
-    _assignment_cb,
-    queue_size=10,
+        f"{namespace}/assigned_incident",
+        String,
+        _assignment_cb,
+        queue_size=10,
     )
+
     rospy.Subscriber(
-        f"{namespace}_camera/"
-        f"image_raw",
+        f"{namespace}_camera/image_raw",
         Image,
         _image_cb,
         queue_size=1,
     )
 
     logger.info(
-        f"Perception agent for "
-        f"{namespace} running."
+        f"Perception agent for {namespace} running."
     )
 
     logger.info(
-        f"Camera topic: "
-        f"{namespace}_camera/image_raw"
+        f"Assignment topic: {namespace}/assigned_incident"
     )
 
     logger.info(
-        f"Event topic: "
-        f"{namespace}/"
-        f"yolo_detection/event"
+        f"Camera topic: {namespace}_camera/image_raw"
+    )
+
+    logger.info(
+        f"Event topic: {namespace}/yolo_detection/event"
     )
 
     rospy.spin()
 
 
 def main():
-
     parser = argparse.ArgumentParser(
-        description=(
-            "Perception Agent "
-            "(YOLOv11n)"
-        )
+        description="Perception Agent (YOLOv11n)"
     )
 
     parser.add_argument(
@@ -626,17 +514,12 @@ def main():
         "--source",
         type=str,
         default=None,
-        help=(
-            "Image/video path for "
-            "standalone testing "
-            "(no ROS)."
-        ),
+        help="Image/video path for standalone testing.",
     )
 
     args = parser.parse_args()
 
     if args.source:
-
         import cv2
 
         agent = PerceptionAgent(
@@ -651,46 +534,37 @@ def main():
         frame_idx = 0
 
         while cap.isOpened():
-
             ok, frame = cap.read()
 
             if not ok:
                 break
 
-            # Synthetic straight-line motion used only for
-            # standalone testing without ROS.
             fake_position = (
                 frame_idx * 0.5,
                 0.0,
                 10.0,
             )
 
-            outcome = (
-                agent.process_frame(
-                    frame,
-                    fake_position,
-                )
+            outcome = agent.process_frame(
+                frame,
+                fake_position,
             )
 
             if outcome.get(
                 "detected",
                 False,
             ):
-
                 print(
                     f"frame {frame_idx}: "
                     f"{outcome['class']} "
-                    f"conf="
-                    f"{outcome['confidence']:.2f} "
-                    f"persisted="
-                    f"{outcome['persisted']}"
+                    f"conf={outcome['confidence']:.2f} "
+                    f"persisted={outcome['persisted']}"
                 )
 
                 if outcome.get(
                     "persisted",
                     False,
                 ):
-
                     print(
                         json.dumps(
                             outcome["event"],
@@ -701,7 +575,6 @@ def main():
             frame_idx += 1
 
         cap.release()
-
         return
 
     try:
@@ -709,13 +582,10 @@ def main():
             args.namespace,
             weights_path=args.weights,
         )
-
     except ImportError:
         logger.warning(
             "rospy/cv_bridge not available. "
-            "Use --source <video_path> "
-            "for standalone testing "
-            "without ROS."
+            "Use --source <video_path> for standalone testing."
         )
 
 
