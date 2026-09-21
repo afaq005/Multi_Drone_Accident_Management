@@ -42,38 +42,176 @@ def load_moondream2():
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
     return model, tokenizer
-
-
-def caption_directory(split_dir: str, output_path: str):
+def caption_directory(
+    split_dir: str,
+    output_path: str,
+    include_augmented: bool = False,
+):
     from PIL import Image
+
+    if not os.path.isdir(split_dir):
+        raise FileNotFoundError(
+            f"Image directory not found: {split_dir}"
+        )
 
     model, tokenizer = load_moondream2()
 
-    image_files = sorted(
-        f for f in os.listdir(split_dir)
+    all_image_files = sorted(
+        f
+        for f in os.listdir(split_dir)
         if os.path.splitext(f)[1].lower() in IMG_EXTENSIONS
     )
-    logger.info(f"Captioning {len(image_files)} images from {split_dir}")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # YOLO augmentation files are named with "_aug_".
+    # BLIP-2 caption generation uses only the original split images,
+    # matching the reported 1,783 / 511 / 254 image-caption pairs.
+    if include_augmented:
+        image_files = all_image_files
+    else:
+        image_files = [
+            f
+            for f in all_image_files
+            if "_aug_" not in f
+        ]
+
+    excluded = (
+        len(all_image_files)
+        - len(image_files)
+    )
+
+    logger.info(
+        f"Found {len(all_image_files)} images in {split_dir}"
+    )
+
+    if excluded:
+        logger.info(
+            f"Excluded {excluded} augmented YOLO images "
+            "from BLIP-2 caption generation."
+        )
+
+    logger.info(
+        f"Captioning {len(image_files)} original images."
+    )
+
+    output_dir = os.path.dirname(
+        output_path
+    )
+
+    if output_dir:
+        os.makedirs(
+            output_dir,
+            exist_ok=True,
+        )
+
     written = 0
-    with open(output_path, "w", encoding="utf-8") as out_f:
+
+    with open(
+        output_path,
+        "w",
+        encoding="utf-8",
+    ) as out_f:
+
         for fname in image_files:
-            image_path = os.path.join(split_dir, fname)
+
+            image_path = os.path.join(
+                split_dir,
+                fname,
+            )
+
             try:
-                image = Image.open(image_path).convert("RGB")
-                encoded_image = model.encode_image(image)
-                caption = model.answer_question(encoded_image, CAPTION_PROMPT, tokenizer)
+                with Image.open(
+                    image_path
+                ) as img:
+                    image = (
+                        img.convert("RGB")
+                        .copy()
+                    )
+
+                encoded_image = (
+                    model.encode_image(
+                        image
+                    )
+                )
+
+                caption = (
+                    model.answer_question(
+                        encoded_image,
+                        CAPTION_PROMPT,
+                        tokenizer,
+                    )
+                )
+
             except Exception as exc:  # noqa: BLE001
-                logger.warning(f"Failed to caption {fname}: {exc}; skipping.")
+                logger.warning(
+                    f"Failed to caption "
+                    f"{fname}: {exc}; skipping."
+                )
                 continue
 
-            out_f.write(json.dumps({"image": image_path, "caption": caption.strip()}) + "\n")
-            written += 1
-            if written % 100 == 0:
-                logger.info(f"  ... {written}/{len(image_files)} captioned")
+            caption = str(
+                caption
+            ).strip()
 
-    logger.info(f"Wrote {written} image-caption pairs to {output_path}")
+            if not caption:
+                logger.warning(
+                    f"Empty caption returned for "
+                    f"{fname}; skipping."
+                )
+                continue
+
+            out_f.write(
+                json.dumps(
+                    {
+                        "image": image_path,
+                        "caption": caption,
+                    }
+                )
+                + "\n"
+            )
+
+            written += 1
+
+            if written % 100 == 0:
+                logger.info(
+                    f"  ... {written}/"
+                    f"{len(image_files)} captioned"
+                )
+
+    logger.info(
+        f"Wrote {written} image-caption pairs "
+        f"to {output_path}"
+    )
+
+# def caption_directory(split_dir: str, output_path: str):
+#     from PIL import Image
+
+#     model, tokenizer = load_moondream2()
+
+#     image_files = sorted(
+#         f for f in os.listdir(split_dir)
+#         if os.path.splitext(f)[1].lower() in IMG_EXTENSIONS
+#     )
+#     logger.info(f"Captioning {len(image_files)} images from {split_dir}")
+
+#     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+#     written = 0
+#     with open(output_path, "w", encoding="utf-8") as out_f:
+#         for fname in image_files:
+#             image_path = os.path.join(split_dir, fname)
+#             try:
+#                 image = Image.open(image_path).convert("RGB")
+#                 encoded_image = model.encode_image(image)
+#                 caption = model.answer_question(encoded_image, CAPTION_PROMPT, tokenizer)
+#             except Exception as exc:  # noqa: BLE001
+#                 logger.warning(f"Failed to caption {fname}: {exc}; skipping.")
+#                 continue
+
+#             out_f.write(json.dumps({"image": image_path, "caption": caption.strip()}) + "\n")
+#             written += 1
+#             if written % 100 == 0:
+#                 logger.info(f"  ... {written}/{len(image_files)} captioned")
+
+#     logger.info(f"Wrote {written} image-caption pairs to {output_path}")
 
 
 def main():
@@ -83,8 +221,19 @@ def main():
     parser.add_argument("--output", type=str, required=True,
                          help="Output JSONL path, e.g. dataset_finetuning/blip2_data/train.jsonl")
     args = parser.parse_args()
-    caption_directory(args.split_dir, args.output)
-
+    parser.add_argument( "--include-augmented",
+            action="store_true",
+            help=(
+                "Also caption images whose filenames contain '_aug_'. "
+                "Disabled by default because the reported BLIP-2 dataset "
+                "uses only the original images."
+            ),
+        )
+    
+    # caption_directory(args.split_dir, args.output)
+    caption_directory(args.split_dir, args.output,
+    include_augmented=args.include_augmented,
+)
 
 if __name__ == "__main__":
     main()
