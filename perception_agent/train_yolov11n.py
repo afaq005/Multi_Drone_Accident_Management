@@ -14,7 +14,7 @@ Uses Ultralytics' YOLO API directly, matching Table 1's evaluation
 comparable to the paper.
 
 Usage:
-    python train_yolov11n.py \
+python perception_agent/train_yolov11n.py \
     --data dataset_finetuning/compiled/data.yaml \
     --epochs 100
 """
