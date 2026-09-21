@@ -20,9 +20,17 @@ Usage:
 """
 import argparse
 import os
+import sys
 
-from model.config import YOLO_IMG_SIZE
-from model.utils import get_logger
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+    )
+)
+
+from model.config import YOLO_IMG_SIZE  # noqa: E402
+from model.utils import get_logger  # noqa: E402
 
 logger = get_logger("perception_agent.train")
 
