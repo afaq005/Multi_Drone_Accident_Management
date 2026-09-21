@@ -5,21 +5,16 @@ coordination_agent/coordination_node.py
 
 ROS wrapper around assignment_solver.py.
 
-Subscribes to the planning agent's `/planning_agent/incidents` topic,
-resolves the drone-to-incident allocation (Eq. 2, honoring any
-operator-directed mapping), and publishes:
+Subscribes:
+    /planning_agent/incidents
 
+Publishes:
     /droneN/waypoints
-        geometry_msgs/PoseArray
-        Resolved waypoint(s) for the assigned drone.
-
     /droneN/assigned_incident
-        std_msgs/String
-        JSON mission/incident metadata for downstream perception,
-        description, and dispatch agents.
 
-Waypoint commands are rebroadcast at WAYPOINT_PUBLISH_HZ for
-WAYPOINT_REPEAT_COUNT cycles to improve command-delivery reliability.
+The demonstrated ROS/MAVROS closed-loop pipeline uses local Cartesian
+coordinates. GPS-mode planning payloads are therefore rejected by this
+node rather than being mixed with MAVROS local-position coordinates.
 """
 
 import json
@@ -54,15 +49,7 @@ logger = get_logger(
 def _prepare_incidents_payload(
     incidents_payload: dict,
 ) -> dict:
-    """
-    Ensure every mission and incident has a stable identifier.
-
-    If the planning agent already supplied mission_id / incident_id,
-    those identifiers are preserved. Otherwise they are created here.
-
-    Existing coordinate fields are left unchanged so that the current
-    assignment solver remains compatible.
-    """
+    """Add stable mission and incident identifiers if absent."""
 
     prepared = dict(
         incidents_payload
@@ -79,15 +66,11 @@ def _prepare_incidents_payload(
             .upper()
         )
 
-    prepared[
-        "mission_id"
-    ] = mission_id
+    prepared["mission_id"] = mission_id
 
-    default_coordinate_mode = (
-        prepared.get(
-            "coordinate_mode",
-            "local",
-        )
+    default_mode = prepared.get(
+        "coordinate_mode",
+        "local",
     )
 
     prepared_incidents = []
@@ -95,7 +78,7 @@ def _prepare_incidents_payload(
     for index, incident in enumerate(
         prepared.get(
             "incidents",
-            []
+            [],
         )
     ):
         inc = dict(
@@ -105,44 +88,70 @@ def _prepare_incidents_payload(
         if not inc.get(
             "incident_id"
         ):
-            inc[
-                "incident_id"
-            ] = (
-                f"{mission_id}-"
-                f"I{index + 1:02d}"
+            inc["incident_id"] = (
+                f"{mission_id}-I{index + 1:02d}"
             )
 
-        inc[
-            "coordinate_mode"
-        ] = inc.get(
+        inc["coordinate_mode"] = inc.get(
             "coordinate_mode",
-            default_coordinate_mode,
+            default_mode,
         )
 
         prepared_incidents.append(
             inc
         )
 
-    prepared[
-        "incidents"
-    ] = prepared_incidents
+    prepared["incidents"] = (
+        prepared_incidents
+    )
 
     return prepared
+
+
+def _validate_local_pipeline(
+    prepared_payload: dict,
+) -> None:
+    """
+    Ensure the ROS coordination pipeline uses only local coordinates.
+
+    Drone positions in this node come from:
+        /droneN/mavros/local_position/pose
+
+    so mixing those positions with geographic latitude/longitude would
+    produce invalid assignment costs.
+    """
+
+    payload_mode = prepared_payload.get(
+        "coordinate_mode",
+        "local",
+    )
+
+    if payload_mode != "local":
+        raise ValueError(
+            "The ROS coordination node currently supports only "
+            "coordinate_mode='local' because drone positions are "
+            "obtained from MAVROS local_position/pose."
+        )
+
+    for incident in prepared_payload.get(
+        "incidents",
+        [],
+    ):
+        if incident.get(
+            "coordinate_mode",
+            payload_mode,
+        ) != "local":
+            raise ValueError(
+                "GPS incident coordinates cannot be mixed with "
+                "MAVROS local-position coordinates."
+            )
 
 
 def _build_assignment_metadata(
     prepared_payload: dict,
     assignments: dict,
 ) -> dict:
-    """
-    Build one structured assignment message per assigned drone.
-
-    Returns:
-        {
-            "/drone1": {...},
-            "/drone2": {...}
-        }
-    """
+    """Build one structured assignment message per assigned drone."""
 
     incidents = prepared_payload[
         "incidents"
@@ -150,103 +159,50 @@ def _build_assignment_metadata(
 
     metadata = {}
 
-    for (
-        drone,
-        incident_index,
-    ) in assignments.items():
-
+    for drone, incident_index in assignments.items():
         incident = incidents[
             incident_index
         ]
 
-        coordinate_mode = (
-            incident.get(
-                "coordinate_mode",
-                "local",
-            )
-        )
-
-        coord_a = float(
-            incident["lat"]
-        )
-
-        coord_b = float(
-            incident["lon"]
-        )
-
-        altitude = float(
-            incident.get(
-                "alt",
-                0.0,
-            )
-        )
-
-        if coordinate_mode == "gps":
-
-            target = {
-                "lat": coord_a,
-                "lon": coord_b,
-                "alt": altitude,
-            }
-
-        else:
-
-            # The current planning/assignment interface historically
-            # stores the first two local Cartesian coordinates in the
-            # fields named `lat` and `lon`. Downstream metadata exposes
-            # them explicitly as x/y when coordinate_mode="local".
-            target = {
-                "x": coord_a,
-                "y": coord_b,
-                "z": altitude,
-            }
+        target = {
+            "x": float(
+                incident["lat"]
+            ),
+            "y": float(
+                incident["lon"]
+            ),
+            "z": float(
+                incident.get(
+                    "alt",
+                    0.0,
+                )
+            ),
+        }
 
         assignment = {
-            "mission_id": (
-                prepared_payload[
-                    "mission_id"
-                ]
-            ),
-
-            "incident_id": (
-                incident[
-                    "incident_id"
-                ]
-            ),
-
-            "incident_index": (
-                incident_index
-            ),
-
+            "mission_id": prepared_payload[
+                "mission_id"
+            ],
+            "incident_id": incident[
+                "incident_id"
+            ],
+            "incident_index": incident_index,
             "drone_id": drone,
-
-            "coordinate_mode": (
-                coordinate_mode
-            ),
-
+            "coordinate_mode": "local",
             "target": target,
         }
 
-        if (
-            "intent"
-            in prepared_payload
-        ):
-            assignment[
-                "intent"
-            ] = prepared_payload[
-                "intent"
-            ]
+        if "intent" in prepared_payload:
+            assignment["intent"] = (
+                prepared_payload["intent"]
+            )
 
         if "type" in incident:
-            assignment[
-                "incident_type"
-            ] = incident[
-                "type"
-            ]
+            assignment["incident_type"] = (
+                incident["type"]
+            )
 
-        metadata[
-            drone
-        ] = assignment
+        metadata[drone] = assignment
 
     return metadata
 
@@ -257,39 +213,16 @@ def resolve_and_broadcast(
     publish_fn,
     assignment_publish_fn=None,
 ):
-    """
-    Resolve assignments and broadcast waypoint commands.
-
-    Parameters
-    ----------
-    incidents_payload:
-        Planning-agent JSON payload.
-
-    drone_positions:
-        Current local UAV positions keyed by namespace.
-
-    publish_fn:
-        Callable:
-            publish_fn(namespace, waypoints)
-
-    assignment_publish_fn:
-        Optional callable:
-            assignment_publish_fn(namespace, metadata)
-
-        Used to publish structured incident identifiers and assignment
-        metadata for downstream agents.
-
-    Returns
-    -------
-    dict
-        The existing waypoint payload format is retained for backward
-        compatibility.
-    """
+    """Resolve assignments and broadcast local Cartesian waypoints."""
 
     prepared_payload = (
         _prepare_incidents_payload(
             incidents_payload
         )
+    )
+
+    _validate_local_pipeline(
+        prepared_payload
     )
 
     incidents = prepared_payload.get(
@@ -299,20 +232,19 @@ def resolve_and_broadcast(
 
     if not incidents:
         logger.warning(
-            "No incidents to resolve; "
-            "nothing published."
+            "No incidents to resolve; nothing published."
         )
         return {}
 
     assignments = solve_assignment(
         drone_positions,
         incidents,
+        coordinate_mode="local",
     )
 
     if not assignments:
         logger.warning(
-            "No drone-to-incident "
-            "assignments were produced."
+            "No assignments were produced."
         )
         return {}
 
@@ -328,36 +260,22 @@ def resolve_and_broadcast(
         )
     )
 
-    # Publish structured assignment metadata once. In ROS mode the
-    # publisher is latched, so downstream nodes that start later can
-    # still retrieve the current assignment.
     if assignment_publish_fn is not None:
-
-        for (
-            namespace,
-            metadata,
-        ) in assignment_metadata.items():
-
+        for namespace, metadata in (
+            assignment_metadata.items()
+        ):
             assignment_publish_fn(
                 namespace,
                 metadata,
             )
 
-    # Preserve the existing waypoint rebroadcast behavior.
     for _ in range(
         WAYPOINT_REPEAT_COUNT
     ):
-
-        for (
-            topic,
-            waypoints,
-        ) in payload.items():
-
-            namespace = (
-                topic.replace(
-                    "/waypoints",
-                    "",
-                )
+        for topic, waypoints in payload.items():
+            namespace = topic.replace(
+                "/waypoints",
+                "",
             )
 
             publish_fn(
@@ -372,18 +290,9 @@ def resolve_and_broadcast(
 
     logger.info(
         "Mission %s assignments: %s",
-        prepared_payload[
-            "mission_id"
-        ],
+        prepared_payload["mission_id"],
         json.dumps(
             assignment_metadata
-        ),
-    )
-
-    logger.info(
-        "Broadcast waypoints: %s",
-        json.dumps(
-            payload
         ),
     )
 
@@ -391,7 +300,6 @@ def resolve_and_broadcast(
 
 
 def run_ros_node():
-
     import rospy
 
     from geometry_msgs.msg import (
@@ -406,7 +314,6 @@ def run_ros_node():
         anonymous=False,
     )
 
-    # Existing waypoint publishers.
     waypoint_publishers = {
         ns: rospy.Publisher(
             f"{ns}/waypoints",
@@ -416,10 +323,6 @@ def run_ros_node():
         for ns in DRONE_NAMESPACES
     }
 
-    # New assignment-metadata publishers.
-    #
-    # latch=True ensures that a perception node started after the
-    # assignment was issued can still obtain its current incident ID.
     assignment_publishers = {
         ns: rospy.Publisher(
             f"{ns}/assigned_incident",
@@ -430,24 +333,14 @@ def run_ros_node():
         for ns in DRONE_NAMESPACES
     }
 
-    # Current drone positions are updated from MAVROS local pose topics.
     drone_positions = {
-        ns: (
-            0.0,
-            0.0,
-            0.0,
-        )
+        ns: (0.0, 0.0, 0.0)
         for ns in DRONE_NAMESPACES
     }
 
-    def _make_pose_callback(
-        ns,
-    ):
+    def _make_pose_callback(ns):
         def _cb(msg):
-
-            drone_positions[
-                ns
-            ] = (
+            drone_positions[ns] = (
                 msg.pose.position.x,
                 msg.pose.position.y,
                 msg.pose.position.z,
@@ -456,14 +349,10 @@ def run_ros_node():
         return _cb
 
     for ns in DRONE_NAMESPACES:
-
         rospy.Subscriber(
-            f"{ns}/mavros/"
-            f"local_position/pose",
+            f"{ns}/mavros/local_position/pose",
             PoseStamped,
-            _make_pose_callback(
-                ns
-            ),
+            _make_pose_callback(ns),
             queue_size=10,
         )
 
@@ -471,40 +360,38 @@ def run_ros_node():
         namespace: str,
         waypoints: list,
     ):
-
-        pub = (
-            waypoint_publishers.get(
-                namespace
-            )
+        pub = waypoint_publishers.get(
+            namespace
         )
 
         if pub is None:
             logger.error(
-                f"No waypoint publisher "
-                f"configured for "
-                f"{namespace}"
+                f"No waypoint publisher configured for {namespace}"
             )
             return
 
         pose_array = PoseArray()
-
         pose_array.header.stamp = (
             rospy.Time.now()
         )
+        pose_array.header.frame_id = (
+            "map"
+        )
 
         for wp in waypoints:
-
             pose = Pose()
 
-            (
-                pose.position.x,
-                pose.position.y,
-                pose.position.z,
-            ) = (
-                float(wp[0]),
-                float(wp[1]),
-                float(wp[2]),
+            pose.position.x = float(
+                wp[0]
             )
+            pose.position.y = float(
+                wp[1]
+            )
+            pose.position.z = float(
+                wp[2]
+            )
+
+            pose.orientation.w = 1.0
 
             pose_array.poses.append(
                 pose
@@ -518,18 +405,13 @@ def run_ros_node():
         namespace: str,
         metadata: dict,
     ):
-
-        pub = (
-            assignment_publishers.get(
-                namespace
-            )
+        pub = assignment_publishers.get(
+            namespace
         )
 
         if pub is None:
             logger.error(
-                f"No assignment publisher "
-                f"configured for "
-                f"{namespace}"
+                f"No assignment publisher configured for {namespace}"
             )
             return
 
@@ -542,40 +424,32 @@ def run_ros_node():
         )
 
         logger.info(
-            f"Published assignment for "
-            f"{namespace}: "
-            f"incident_id="
-            f"{metadata['incident_id']}"
+            f"Published assignment for {namespace}: "
+            f"incident_id={metadata['incident_id']}"
         )
 
-    def _incidents_callback(
-        msg: "String",
-    ):
-
+    def _incidents_callback(msg):
         try:
-            incidents_payload = (
-                json.loads(
-                    msg.data
-                )
+            incidents_payload = json.loads(
+                msg.data
             )
-
         except json.JSONDecodeError:
-
             logger.error(
-                f"Malformed incidents "
-                f"payload: {msg.data!r}"
+                f"Malformed incidents payload: {msg.data!r}"
             )
-
             return
 
-        resolve_and_broadcast(
-            incidents_payload,
-            drone_positions,
-            publish_fn,
-            assignment_publish_fn=(
-                assignment_publish_fn
-            ),
-        )
+        try:
+            resolve_and_broadcast(
+                incidents_payload,
+                drone_positions,
+                publish_fn,
+                assignment_publish_fn,
+            )
+        except ValueError as exc:
+            logger.error(
+                f"Mission rejected: {exc}"
+            )
 
     rospy.Subscriber(
         "/planning_agent/incidents",
@@ -589,31 +463,14 @@ def run_ros_node():
         "/planning_agent/incidents"
     )
 
-    logger.info(
-        "Publishing per-drone assignment "
-        "metadata on "
-        "/droneN/assigned_incident"
-    )
-
     rospy.spin()
 
 
 if __name__ == "__main__":
-
     try:
         run_ros_node()
-
     except ImportError:
-
         logger.warning(
             "rospy not available. "
-            "Use assignment_solver.py "
-            "directly for standalone testing, e.g.:\n"
-            "  python "
-            "coordination_agent/"
-            "assignment_solver.py "
-            "--incidents "
-            '\'[{"lat":-165,'
-            '"lon":-1.43,'
-            '"alt":10}]\'' 
+            "Use assignment_solver.py for standalone testing."
         )
