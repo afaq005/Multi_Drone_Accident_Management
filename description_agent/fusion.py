@@ -1,133 +1,522 @@
 #!/usr/bin/env python3
 """
 description_agent/fusion.py
-============================
-Implements the confidence-weighted multi-view caption fusion of
-Section 6.5, Eq. 23:
+===========================
 
-    y_hat = argmax_y  sum_i w_i * p_BLIP2(y | I_i),   w_i = conf_i / sum_k conf_k
+Implements confidence-prioritized multi-view caption fusion for the
+description agent.
 
-Rather than sampling over the full caption space (intractable), we realize
-this — exactly as the paper describes in the paragraph following Eq. 23 —
-"by conditioning the description agent's generation on the highest-
-confidence view while incorporating auxiliary detail from secondary
-views." Concretely:
+When multiple drones observe the same incident, each perception agent
+provides a YOLO confidence score and each view is independently described
+by BLIP-2. The fusion procedure is:
 
-  1. Compute normalized weights w_i from each view's perception-agent
-     confidence (Eq. 21's confidence score).
-  2. Generate the primary caption from the highest-confidence frame.
-  3. Generate secondary captions from the remaining views.
-  4. Merge: keep the primary caption as the report's backbone and append
-     any additional entities/details present in secondary captions but
-     absent from the primary one, weighted by their w_i.
+    1. Normalize the per-view YOLO confidence scores:
 
-This module is intentionally decoupled from the model-loading code in
-inference.py so it can be unit-tested with plain caption strings.
+           w_i = conf_i / sum_k(conf_k)
+
+    2. Select the caption associated with the highest-confidence view as
+       the primary incident description.
+
+    3. Rank the remaining views by normalized confidence.
+
+    4. Examine the secondary captions for salient incident details that
+       are absent from the primary caption.
+
+    5. Append non-duplicated salient details to produce one consolidated
+       multi-view incident report.
+
+This is a deterministic confidence-prioritized heuristic. It does NOT
+compute or maximize a weighted sum of BLIP-2 caption probability
+distributions over the full caption space.
+
+The normalized confidence weights are retained in the returned metadata
+for traceability and for downstream processing.
+
+This module is intentionally decoupled from BLIP-2 model loading so that
+the fusion behavior can be unit-tested using plain caption strings.
 """
+
+import math
+import os
 import re
 import sys
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Dict, List
 
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# Allow imports from the repository root when this file is run directly.
+REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")
+)
+
+if REPO_ROOT not in sys.path:
+    sys.path.append(REPO_ROOT)
+
 from model.utils import get_logger  # noqa: E402
 
 logger = get_logger("description_agent.fusion")
 
-# A small vocabulary of scene entities worth surfacing from secondary
-# views even if the primary caption omits them (e.g. one drone sees fire,
-# another sees the flipped vehicle).
+
+# Salient incident concepts that may provide useful complementary
+# information when visible only from secondary drone viewpoints.
+#
+# This vocabulary is intentionally small and interpretable because the
+# fusion mechanism is a deterministic heuristic rather than another
+# learned language model.
 SALIENT_TERMS = [
-    "fire", "flames", "smoke", "overturned", "flipped", "rollover",
-    "pedestrian", "motorcycle", "truck", "multiple vehicles", "debris",
-    "injured", "blocked lane", "guardrail",
+    "fire",
+    "flames",
+    "smoke",
+    "overturned",
+    "flipped",
+    "rollover",
+    "pedestrian",
+    "motorcycle",
+    "truck",
+    "multiple vehicles",
+    "debris",
+    "injured",
+    "blocked lane",
+    "guardrail",
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class View:
-    """One drone's observation of the same incident."""
-    drone_id: str
-    confidence: float          # conf_i from Eq. 21
-    caption: str = ""          # p_BLIP2(y | I_i), materialized as text
-
-
-def normalized_weights(views: List[View]) -> List[float]:
-    """w_i = conf_i / sum_k conf_k, per Eq. 23."""
-    total = sum(v.confidence for v in views)
-    if total <= 0:
-        return [1.0 / len(views)] * len(views)
-    return [v.confidence / total for v in views]
-
-
-def _extract_missing_salient_terms(primary_caption: str, other_caption: str) -> List[str]:
-    primary_lower = primary_caption.lower()
-    other_lower = other_caption.lower()
-    missing = []
-    for term in SALIENT_TERMS:
-        if term in other_lower and term not in primary_lower:
-            missing.append(term)
-    return missing
-
-
-def fuse_captions(views: List[View]) -> dict:
-    """Fuses multiple per-drone captions of the same incident into a single
-    confidence-weighted summary (Eq. 23).
-
-    Returns a dict with the fused text, the chosen primary view, and the
-    per-view weights (useful for the dispatch agent's severity score,
-    Eq. 24, which needs `conf_i` and `p_BLIP2(y_hat | I)`).
     """
+    One drone observation of an incident.
+
+    Attributes
+    ----------
+    drone_id:
+        Identifier of the reporting drone.
+
+    confidence:
+        YOLO detection confidence for this view.
+
+    caption:
+        Natural-language description generated by the description agent.
+    """
+
+    drone_id: str
+    confidence: float
+    caption: str = ""
+
+
+def _validate_views(views: List[View]) -> None:
+    """Validate the inputs supplied to the fusion procedure."""
+
     if not views:
-        raise ValueError("fuse_captions requires at least one view")
+        raise ValueError(
+            "fuse_captions requires at least one view."
+        )
+
+    seen_drone_ids = set()
+
+    for view in views:
+
+        if not view.drone_id:
+            raise ValueError(
+                "Each view must contain a non-empty drone_id."
+            )
+
+        if view.drone_id in seen_drone_ids:
+            raise ValueError(
+                f"Duplicate drone_id in fusion input: "
+                f"{view.drone_id}"
+            )
+
+        seen_drone_ids.add(
+            view.drone_id
+        )
+
+        try:
+            confidence = float(
+                view.confidence
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid confidence for "
+                f"{view.drone_id}: "
+                f"{view.confidence}"
+            ) from exc
+
+        if not math.isfinite(confidence):
+            raise ValueError(
+                f"Non-finite confidence for "
+                f"{view.drone_id}: "
+                f"{confidence}"
+            )
+
+        if confidence < 0.0 or confidence > 1.0:
+            raise ValueError(
+                f"Confidence for {view.drone_id} "
+                f"must be between 0 and 1; "
+                f"received {confidence}."
+            )
+
+        if not isinstance(
+            view.caption,
+            str,
+        ):
+            raise ValueError(
+                f"Caption for {view.drone_id} "
+                f"must be a string."
+            )
+
+
+def normalized_weights(
+    views: List[View],
+) -> List[float]:
+    """
+    Normalize the per-view YOLO confidence scores.
+
+    The normalized value for view i is
+
+        w_i = conf_i / sum_k(conf_k)
+
+    If every confidence is zero, uniform weights are returned to avoid
+    division by zero.
+    """
+
+    if not views:
+        raise ValueError(
+            "normalized_weights requires at least one view."
+        )
+
+    confidences = [
+        float(view.confidence)
+        for view in views
+    ]
+
+    total = sum(confidences)
+
+    if total <= 0.0:
+
+        uniform_weight = (
+            1.0 / len(views)
+        )
+
+        return [
+            uniform_weight
+            for _ in views
+        ]
+
+    return [
+        confidence / total
+        for confidence in confidences
+    ]
+
+
+def _contains_term(
+    text: str,
+    term: str,
+) -> bool:
+    """
+    Check whether a salient term occurs in a caption.
+
+    Word boundaries are used when possible to reduce accidental substring
+    matches. Multi-word terms such as 'multiple vehicles' are supported.
+    """
+
+    text = text.lower().strip()
+    term = term.lower().strip()
+
+    if not text or not term:
+        return False
+
+    pattern = (
+        r"(?<!\w)"
+        + re.escape(term)
+        + r"(?!\w)"
+    )
+
+    return (
+        re.search(
+            pattern,
+            text,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _extract_missing_salient_terms(
+    primary_caption: str,
+    other_caption: str,
+) -> List[str]:
+    """
+    Return salient terms that occur in the secondary caption but not in
+    the current fused report.
+    """
+
+    missing_terms = []
+
+    for term in SALIENT_TERMS:
+
+        appears_in_secondary = (
+            _contains_term(
+                other_caption,
+                term,
+            )
+        )
+
+        already_in_primary = (
+            _contains_term(
+                primary_caption,
+                term,
+            )
+        )
+
+        if (
+            appears_in_secondary
+            and not already_in_primary
+        ):
+            missing_terms.append(term)
+
+    return missing_terms
+
+
+def fuse_captions(
+    views: List[View],
+) -> Dict:
+    """
+    Fuse multiple per-drone captions into one consolidated incident report.
+
+    Fusion procedure
+    ----------------
+    1. Normalize the YOLO confidence values.
+    2. Select the highest-confidence view as the primary report.
+    3. Rank secondary views by normalized confidence.
+    4. Add non-duplicated salient incident details that are absent from
+       the current primary report.
+
+    Returns
+    -------
+    dict
+        Contains:
+
+        fused_caption:
+            Final consolidated incident description.
+
+        primary_drone:
+            Drone whose caption supplied the primary report.
+
+        primary_weight:
+            Normalized confidence of the primary view.
+
+        weights:
+            Mapping of drone IDs to normalized confidence weights.
+
+        appended_terms:
+            Salient terms incorporated from secondary views.
+
+        fusion_method:
+            Identifier of the implemented fusion strategy.
+    """
+
+    _validate_views(views)
+
+    # Single-view case requires no fusion.
     if len(views) == 1:
-        v = views[0]
+
+        view = views[0]
+
+        caption = (
+            view.caption.strip()
+        )
+
+        if (
+            caption
+            and not caption.endswith(".")
+        ):
+            caption += "."
+
         return {
-            "fused_caption": v.caption,
-            "primary_drone": v.drone_id,
-            "weights": {v.drone_id: 1.0},
+            "fused_caption": caption,
+            "primary_drone": view.drone_id,
+            "primary_weight": 1.0,
+            "weights": {
+                view.drone_id: 1.0
+            },
+            "appended_terms": [],
+            "fusion_method": (
+                "single_view"
+            ),
         }
 
-    weights = normalized_weights(views)
-    ranked = sorted(zip(views, weights), key=lambda vw: vw[1], reverse=True)
-    primary_view, primary_weight = ranked[0]
-    secondary = ranked[1:]
+    weights = normalized_weights(
+        views
+    )
 
-    fused_text = primary_view.caption.rstrip(". ")
+    # Keep each view paired with its normalized confidence.
+    weighted_views = list(
+        zip(
+            views,
+            weights,
+        )
+    )
+
+    # Confidence-prioritized ordering.
+    ranked_views = sorted(
+        weighted_views,
+        key=lambda item: item[1],
+        reverse=True,
+    )
+
+    primary_view, primary_weight = (
+        ranked_views[0]
+    )
+
+    secondary_views = (
+        ranked_views[1:]
+    )
+
+    # Primary caption is the backbone of the fused report.
+    fused_text = (
+        primary_view.caption
+        .strip()
+        .rstrip(". ")
+    )
+
     appended_terms: List[str] = []
-    for view, _w in secondary:
-        missing = _extract_missing_salient_terms(fused_text, view.caption)
-        for term in missing:
+
+    # Secondary views are examined from highest to lowest confidence.
+    for (
+        secondary_view,
+        secondary_weight,
+    ) in secondary_views:
+
+        missing_terms = (
+            _extract_missing_salient_terms(
+                fused_text,
+                secondary_view.caption,
+            )
+        )
+
+        for term in missing_terms:
+
             if term not in appended_terms:
-                appended_terms.append(term)
+                appended_terms.append(
+                    term
+                )
+
+                logger.debug(
+                    f"Adding secondary-view detail "
+                    f"'{term}' from "
+                    f"{secondary_view.drone_id} "
+                    f"(normalized confidence="
+                    f"{secondary_weight:.3f})."
+                )
 
     if appended_terms:
-        fused_text += f"; additional drone views also report {', '.join(appended_terms)}"
-    fused_text = fused_text.strip()
-    if not fused_text.endswith("."):
+
+        additional_details = (
+            ", ".join(
+                appended_terms
+            )
+        )
+
+        if fused_text:
+            fused_text += (
+                "; additional drone views "
+                f"also report "
+                f"{additional_details}"
+            )
+        else:
+            fused_text = (
+                "Additional drone views "
+                f"report "
+                f"{additional_details}"
+            )
+
+    fused_text = (
+        fused_text.strip()
+    )
+
+    if (
+        fused_text
+        and not fused_text.endswith(".")
+    ):
         fused_text += "."
 
+    weight_mapping = {
+        view.drone_id: weight
+        for view, weight in zip(
+            views,
+            weights,
+        )
+    }
+
     logger.info(
-        f"Fused {len(views)} views -> primary={primary_view.drone_id} "
-        f"(w={primary_weight:.2f}); appended terms: {appended_terms}"
+        f"Confidence-prioritized fusion of "
+        f"{len(views)} views: "
+        f"primary={primary_view.drone_id}, "
+        f"normalized_confidence="
+        f"{primary_weight:.3f}, "
+        f"additional_terms="
+        f"{appended_terms}"
     )
 
     return {
         "fused_caption": fused_text,
-        "primary_drone": primary_view.drone_id,
-        "primary_weight": primary_weight,
-        "weights": {v.drone_id: w for v, w in zip(views, weights)},
+        "primary_drone": (
+            primary_view.drone_id
+        ),
+        "primary_weight": (
+            primary_weight
+        ),
+        "weights": weight_mapping,
+        "appended_terms": (
+            appended_terms
+        ),
+        "fusion_method": (
+            "confidence_prioritized"
+        ),
     }
 
 
 if __name__ == "__main__":
-    # Simple smoke test / usage example.
+
+    # Simple smoke-test / usage example.
     example_views = [
-        View(drone_id="/drone1", confidence=0.91,
-             caption="A car accident scene on the highway; two vehicles collided head-on"),
-        View(drone_id="/drone2", confidence=0.74,
-             caption="Overturned vehicle with smoke visible near the guardrail"),
+        View(
+            drone_id="/drone1",
+            confidence=0.91,
+            caption=(
+                "A car accident scene on the highway; "
+                "two vehicles collided head-on"
+            ),
+        ),
+        View(
+            drone_id="/drone2",
+            confidence=0.74,
+            caption=(
+                "Overturned vehicle with smoke visible "
+                "near the guardrail"
+            ),
+        ),
     ]
-    result = fuse_captions(example_views)
-    print(result["fused_caption"])
+
+    result = fuse_captions(
+        example_views
+    )
+
+    print(
+        "Fused caption:",
+        result["fused_caption"],
+    )
+
+    print(
+        "Primary drone:",
+        result["primary_drone"],
+    )
+
+    print(
+        "Normalized weights:",
+        result["weights"],
+    )
+
+    print(
+        "Additional terms:",
+        result["appended_terms"],
+    )
