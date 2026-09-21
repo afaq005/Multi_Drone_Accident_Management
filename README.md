@@ -248,7 +248,7 @@ python description_agent/inference.py \
   --image detected_frame.jpg
 ```
 
-### 5. Dispatch agent — GPS mode
+### 5. Dispatch agent : GPS mode
 
 ```bash
 python dispatch_agent/tts_dispatch.py \
@@ -261,7 +261,7 @@ python dispatch_agent/tts_dispatch.py \
   --log-p-blip2 -0.4
 ```
 
-### 6. Dispatch agent — local Cartesian mode
+### 6. Dispatch agent : local Cartesian mode
 
 Local routing requires rescue-center coordinates defined in the **same local coordinate frame** as the incident.
 
