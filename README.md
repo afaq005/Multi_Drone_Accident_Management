@@ -32,7 +32,6 @@ The complete closed-loop multi-agent system was evaluated in a four-drone/four-i
 - [Results](#results)
 - [Testing](#testing)
 - [Reproducibility Scope and Limitations](#reproducibility-scope-and-limitations)
-- [Status](#status)
 - [Code and Data Availability](#code-and-data-availability)
 - [Citation](#citation)
 - [License](#license)
@@ -946,31 +945,6 @@ BLIP-2 text metrics use `moondream2`-generated synthetic references. They quanti
 
 Do not assume that latency introduced by every current integration wrapper was included in the originally reported 7.7-s measurement unless the timing experiment is rerun using the current archived configuration.
 
----
-
-## Status
-
-| Component | Status |
-|---|---|
-| GPT-4o mini planning agent | ✅ Implemented |
-| Hungarian/greedy coordination solver | ✅ Implemented |
-| Stable mission/incident metadata | ✅ Implemented |
-| ROS assignment + waypoint publishing | ✅ Implemented |
-| MAVROS local-position waypoint adapter | ✅ Implemented |
-| YOLOv11n training/inference | ✅ Implemented |
-| Trained YOLOv11n checkpoint | ✅ Included |
-| Assignment-aware perception events | ✅ Implemented |
-| BLIP-2 fine-tuning/inference | ✅ Implemented |
-| Confidence-prioritized fusion | ✅ Implemented |
-| Incident report aggregator | ✅ Implemented |
-| GPS/local rescue-center routing | ✅ Implemented |
-| Piper/MQTT dispatch | ✅ Implemented |
-| ROS dispatch wrapper | ✅ Implemented |
-| Dataset split/augmentation scripts | ✅ Implemented |
-| Fixed Gazebo world / UAV model | Not distributed; user supplied |
-| Fine-tuned BLIP-2 checkpoint | Reproducible via provided script; not bundled |
-| Dynamic failure reassignment | Not implemented |
-| General `K > N` sequential servicing | Not implemented |
 
 ---
 
@@ -1014,7 +988,7 @@ Update the bibliographic entry with the final journal volume/article information
 For the archived code:
 
 ```text
-Zenodo DOI: 10.5281/zenodo.22808434
+Zenodo DOI: 
 ```
 
 ---
