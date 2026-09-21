@@ -50,7 +50,7 @@ def compute_severity(
 def nearest_rescue_center(
     coord_a: float,
     coord_b: float,
-    centers: List[Tuple[str, float, float]] = RESCUE_CENTERS,
+    centers: Optional[List[Tuple[str, float, float]]] = None,
     coordinate_mode: str = "gps",
 ) -> Tuple[str, float]:
     """
@@ -73,7 +73,19 @@ def nearest_rescue_center(
         raise ValueError(
             "coordinate_mode must be either 'gps' or 'local'"
         )
-
+    if centers is None:
+      if coordinate_mode == "gps":
+          centers = RESCUE_CENTERS
+      else:
+          raise ValueError(
+              "Local coordinate mode requires explicit rescue-center "
+              "coordinates defined in the same Cartesian frame."
+          )
+  
+  if not centers:
+      raise ValueError(
+          "At least one rescue center is required."
+      )
     best_name = None
     best_dist = float("inf")
 
@@ -207,12 +219,62 @@ def route_alert(
 
     return payload
 
+def load_centers_json(path: str) -> List[Tuple[str, float, float]]:
+    """
+    Load rescue-center coordinates from JSON.
 
+    Expected format:
+
+        [
+            ["Rescue Center A", -150.0, 20.0],
+            ["Rescue Center B", 80.0, 15.0]
+        ]
+    """
+
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as f:
+        raw = json.load(f)
+
+    centers = []
+
+    for item in raw:
+        if (
+            not isinstance(item, list)
+            or len(item) != 3
+        ):
+            raise ValueError(
+                "Each rescue center must have the form "
+                "[name, coordinate_a, coordinate_b]."
+            )
+
+        name, coord_a, coord_b = item
+
+        centers.append(
+            (
+                str(name),
+                float(coord_a),
+                float(coord_b),
+            )
+        )
+
+    return centers
+  
 def main():
     parser = argparse.ArgumentParser(
         description="Dispatch Agent routing (Eq. 24-25)"
     )
-
+    parser.add_argument(
+    "--centers-json",
+    type=str,
+    default=None,
+    help=(
+        "Optional JSON file containing rescue-center coordinates. "
+        "Required when --coordinate-mode local."
+    ),
+)
     parser.add_argument(
         "--type",
         type=str,
@@ -282,6 +344,11 @@ def main():
 
         coord_a = args.lat
         coord_b = args.lon
+        centers = (
+            load_centers_json(args.centers_json)
+            if args.centers_json
+            else None
+        )
 
     else:
 
@@ -293,7 +360,7 @@ def main():
 
         coord_a = args.x
         coord_b = args.y
-
+         centers = load_centers_json( args.centers_json)
     payload = build_alert_payload(
         args.type,
         args.summary,
@@ -304,8 +371,11 @@ def main():
         coordinate_mode=args.coordinate_mode,
     )
 
-    routed = route_alert(payload)
-
+    # routed = route_alert(payload)
+    routed = route_alert(
+        payload,
+        centers=centers,
+    )
     print(
         json.dumps(
             routed,
