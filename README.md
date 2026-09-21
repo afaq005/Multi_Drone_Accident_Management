@@ -14,7 +14,7 @@ This repository implements the system described in:
 > Afaq Ahmed, Hassan Eesaar, Muhammad Farhan, YongSuk Yoo, and Deok Jin Lee  
 > Jeonbuk National University
 
-The framework combines five functional agents—**planning, coordination, per-drone perception, scene description, and dispatch**—with ROS/MAVROS integration for multi-drone accident-response experiments.
+The framework combines five functional agents **planning, coordination, per-drone perception, scene description, and dispatch** with ROS/MAVROS integration for multi-drone accident-response experiments.
 
 The complete closed-loop multi-agent system was evaluated in a four-drone/four-incident Gazebo configuration. Physical DJI M30T experiments were preliminary and limited to perception/scene-description evaluation; they did **not** reproduce the full planning, coordination, dispatch, and autonomous-control loop on the physical platform.
 
