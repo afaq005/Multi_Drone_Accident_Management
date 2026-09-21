@@ -579,6 +579,22 @@ def run_ros_node(
             "description_timestamp": (
                 time.time()
             ),
+            "mission_id": event.get(
+                "mission_id"
+            ),
+            
+            "incident_id": event.get(
+                "incident_id"
+            ),
+            
+            "incident_index": event.get(
+                "incident_index"
+            ),
+            
+            "assigned_target": event.get(
+                "assigned_target"
+            ),
+            
         }
 
         report_pub.publish(
