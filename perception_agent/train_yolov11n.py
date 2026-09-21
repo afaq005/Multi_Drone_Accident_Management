@@ -4,15 +4,19 @@ perception_agent/train_yolov11n.py
 ===================================
 Trains the YOLOv11n incident-detection model on the 2-class
 {accident, fire} dataset described in Section 4.1 (2,548 base images,
-4,331 after horizontal/vertical flip + 90-degree rotation augmentation;
-3,566 train / 511 val / 254 test at 640x640).
+split into 1,783 train / 511 validation / 254 test images before
+augmentation. Augmentation is applied only to the training partition,
+yielding 3,566 train / 511 validation / 254 test images at 640x640
+(4,331 images total).
 
 Uses Ultralytics' YOLO API directly, matching Table 1's evaluation
 (P, R, mAP@50, inference time, params, GFLOPs) so results are directly
 comparable to the paper.
 
 Usage:
-    python train_yolov11n.py --data dataset_finetuning/data.yaml --epochs 100
+    python train_yolov11n.py \
+    --data dataset_finetuning/compiled/data.yaml \
+    --epochs 100
 """
 import argparse
 import os
@@ -53,23 +57,53 @@ def train(data_yaml: str, epochs: int, batch: int, imgsz: int, weights: str, pro
     )
 
     # Validation mirrors Table 1's metrics (P, R, mAP@50).
-    metrics = model.val()
-    logger.info(f"mAP@50 (all classes): {metrics.box.map50:.3f}")
-    logger.info(f"Precision (mean): {metrics.box.mp:.3f}")
-    logger.info(f"Recall (mean): {metrics.box.mr:.3f}")
+    # metrics = model.val()
+    # logger.info(f"mAP@50 (all classes): {metrics.box.map50:.3f}")
+    # logger.info(f"Precision (mean): {metrics.box.mp:.3f}")
+    # logger.info(f"Recall (mean): {metrics.box.mr:.3f}")
 
-    best_weights = os.path.join(project, "yolov11n_accident_fire", "weights", "best.pt")
+    # best_weights = os.path.join(project, "yolov11n_accident_fire", "weights", "best.pt")
+    best_weights = os.path.join(
+    project,
+    "yolov11n_accident_fire",
+    "weights",
+    "best.pt",)
+
+    # Evaluate the best checkpoint on the held-out TEST partition,
+    # matching Table 1 of the paper.
+    best_model = YOLO(best_weights)
+    
+    metrics = best_model.val(
+        data=data_yaml,
+        split="test",
+        imgsz=imgsz,
+    )
+    
+    logger.info(
+        f"Test mAP@50 (all classes): "
+        f"{metrics.box.map50:.3f}"
+    )
+    logger.info(
+        f"Test Precision (mean): "
+        f"{metrics.box.mp:.3f}"
+    )
+    logger.info(
+        f"Test Recall (mean): "
+        f"{metrics.box.mr:.3f}"
+    )
+
     logger.info(f"Best weights saved to: {best_weights}")
     logger.info(
-        "Copy/symlink this file to perception_agent/weights/yolov11n_accident_fire.pt "
-        "for inference_node.py to pick it up."
+    "To use this newly trained checkpoint for inference, either set "
+    "MDAM_YOLO_WEIGHTS to this path or copy it to "
+    "Yolov11n_Model_Weights/best.pt."
     )
     return results
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train YOLOv11n perception agent")
-    parser.add_argument("--data", type=str, default="dataset_finetuning/data.yaml")
+    parser.add_argument("--data", type=str, default="dataset_finetuning/compiled/data.yaml")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--imgsz", type=int, default=YOLO_IMG_SIZE)
