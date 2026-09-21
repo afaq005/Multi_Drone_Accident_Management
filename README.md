@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](requirements.txt)
-[![ROS Noetic](https://img.shields.io/badge/ROS-Noetic-22314E.svg)](simulation/)
-[![Gazebo 11](https://img.shields.io/badge/Gazebo-11-orange.svg)](simulation/worlds)
+[![ROS Noetic](https://img.shields.io/badge/ROS-Noetic-22314E.svg)]
+[![Gazebo 11](https://img.shields.io/badge/Gazebo-11-orange.svg)]
 
 This repository implements the system described in:
 
@@ -44,7 +44,7 @@ flowchart LR
     C --> D3["🚁 Drone 3"]
     C --> D4["🚁 Drone 4"]
     D1 & D2 & D3 & D4 --> E["👁️ Perception Agents<br/>YOLOv11n"]
-    E --> F["📝 Description Agent<br/>Fine-tuned BLIP-2 (Eq. 23)"]
+    E --> F["📝 Description Agent<br/>Fine-tuned BLIP-2 (Eq. 23) + Multi-view Fusion"]
     F --> G["📡 Dispatch Agent<br/>Piper TTS + Routing (Eq. 25)"]
     G --> H1["🏥 Rescue Center A"]
     G --> H2["🏥 Rescue Center B"]
@@ -54,10 +54,10 @@ flowchart LR
 
 | # | Agent | Role | Code |
 |---|---|---|---|
-| 1 | **Planning** | Parses free-form emergency-call transcripts into structured coordinates + intent via GPT-4o mini | [`planning_agent/`](planning_agent/) |
+| 1 | **Planning** | Parses natural-language mission transcripts into structured coordinates + intent via GPT-4o mini | [`planning_agent/`](planning_agent/) |
 | 2 | **Coordination** | Solves the optimal drone-to-incident assignment problem (Eq. 2) | [`coordination_agent/`](coordination_agent/) |
 | 3 | **Perception** (×N) | Per-drone real-time YOLOv11n accident/fire detection (Eq. 21-22) | [`perception_agent/`](perception_agent/) |
-| 4 | **Description** | Fine-tuned BLIP-2 scene captioning + multi-view confidence-weighted fusion (Eq. 18-20, 23) | [`description_agent/`](description_agent/) |
+| 4 | **Description** | Fine-tuned BLIP-2 scene captioning + confidence-prioritized multi-view fusion | [`description_agent/`](description_agent/) |
 | 5 | **Dispatch** | Piper TTS audio alerts + nearest-rescue-center routing (Eq. 24-25) | [`dispatch_agent/`](dispatch_agent/) |
 
 
@@ -131,14 +131,14 @@ conda env create -f environment.yml
 conda activate mdam
 ```
 
-### ROS / Gazebo / MAVROS / ArduPilot (required for `simulation/`)
+### ROS / Gazebo / MAVROS / ArduPilot (for closed-loop simulation)
 This is a plug-in agentic layer : add your own Gazebo world, drone models, and ArduPilot+MAVROS bridge, publish/subscribe to those topic names, and the five agents work unmodified. No agent code assumes a specific world or vehicle.
 
 
 ### Environment variables
 ```bash
 export OPENAI_API_KEY="sk-..."          # required for the planning agent
-export MDAM_YOLO_WEIGHTS=/path/to/yolov11n_accident_fire.pt
+export MDAM_YOLO_WEIGHTS=/path/to/best.pt
 export MDAM_BLIP2_WEIGHTS=/path/to/blip2_finetuned
 export MDAM_PIPER_VOICE=/path/to/en_US-libritts-high.onnx
 ```
@@ -176,9 +176,13 @@ python description_agent/inference.py --image detected_frame.jpg
 ```bash
 python dispatch_agent/tts_dispatch.py \
   --summary "Head-on collision, no visible fire." \
-  --lat 37.33445 --lon -122.00898 --conf 0.87 --log-p-blip2 -0.4
+  --coordinate-mode gps \
+  --lat 37.33445 --lon -122.00898 \
+  --conf 0.87 --log-p-blip2 -0.4
 ```
-
+For Gazebo or another local Cartesian environment, use
+`--coordinate-mode local --x <x> --y <y>` together with a rescue-center
+JSON file containing coordinates defined in that world.
 ---
 
 ## Agent-by-Agent Guide
@@ -186,7 +190,7 @@ python dispatch_agent/tts_dispatch.py \
 <details>
 <summary><b>🧠 Planning Agent</b> — <code>planning_agent/</code></summary>
 
-Calls GPT-4o mini (`temperature=0`) with a strongly constrained system prompt ([`prompt_templates/system_prompt.txt`](planning_agent/prompt_templates/system_prompt.txt)) to convert a free-form transcript into strict JSON:
+Calls GPT-4o mini (`temperature=0`) with a strongly constrained system prompt ... to convert a natural-language mission transcript into strict JSON:
 
 ```json
 {"incidents": [{"lat": -165, "lon": -1.43, "alt": 10, "drone": "/drone1"}], "intent": "multi-vehicle collision response"}
@@ -210,13 +214,13 @@ Trains/runs YOLOv11n on the 2-class `{accident, fire}` dataset. Implements the d
 <details>
 <summary><b>📝 Description Agent</b> — <code>description_agent/</code></summary>
 
-Fine-tunes `Salesforce/blip2-opt-2.7b` with the vision encoder **and Q-Former frozen** (paper: "holding its visual encoder frozen to preserve pre-trained feature representations"), matching the loss decomposition of Eq. 18-20. `fusion.py` implements the confidence-weighted multi-view fusion of Eq. 23 — when several drones observe the same incident, their captions are merged into a single report, anchored on the highest-confidence view with salient details from secondary views appended.
+Fine-tunes `Salesforce/blip2-opt-2.7b` for incident-description generation. During task-specific fine-tuning, the vision encoder and Q-Former are frozen, while the language projection and OPT language-generation model remain trainable under the conditional-generation cross-entropy objective. `fusion.py` implements confidence-prioritized multi-view fusion: the highest-confidence view provides the primary caption, and non-duplicated salient details from secondary views are appended to form a consolidated report.
 </details>
 
 <details>
 <summary><b>📡 Dispatch Agent</b> — <code>dispatch_agent/</code></summary>
 
-Computes the severity score of Eq. 24 (`sigmoid(α·conf_YOLO + β·log p_BLIP2)`), routes each alert to the nearest rescue center via Eq. 25 (haversine distance over `RESCUE_CENTERS` in `model/config.py`), synthesizes audio with Piper TTS, and publishes the JSON payload over MQTT.
+Computes the severity score of Eq. 24 (`sigmoid(α·conf_YOLO + β·log p_BLIP2)`), routes each alert to the nearest rescue center, synthesizes audio with Piper TTS, and publishes the JSON payload over MQTT. GPS coordinates use Haversine distance, whereas local Cartesian coordinates such as Gazebo world coordinates use Euclidean distance. The default `RESCUE_CENTERS` entries are GPS examples; local simulation experiments should provide rescue-center coordinates defined in the user's own world.
 </details>
 
 ---
@@ -227,7 +231,9 @@ Two datasets are used (Section 4.1, Fig. 3):
 
 | Dataset | Purpose | Size |
 |---|---|---|
-| YOLO detection dataset | 2 public Roboflow datasets ([donghee/test-d95ea](https://universe.roboflow.com/donghee/test-d95ea), [kk-qg4vu/car-fires-detection](https://universe.roboflow.com/kk-qg4vu/car-fires-detection)) + prior-study dataset ([Ahmed et al. 2024](https://doi.org/10.3390/drones8120741)) | 2,548 base → 4,331 after augmentation (3,566 train / 511 val / 254 test) |
+| YOLO detection dataset | 2 public Roboflow datasets ([donghee/test-d95ea](https://universe.roboflow.com/donghee/test-d95ea), [kk-qg4vu/car-fires-detection](https://universe.roboflow.com/kk-qg4vu/car-fires-detection)) + prior-study dataset ([Ahmed et al. 2024](https://doi.org/10.3390/drones8120741)) | 2,548 base images split first into 1,783 train / 511 validation / 254 test; augmentation is then applied only to training, yielding 3,566 train / 511 validation / 254 test (4,331 total) |
+
+
 | BLIP-2 fine-tuning pairs | Same source images, captioned via `moondream2` | 1,783 train / 511 val / 254 test |
 
 
@@ -243,8 +249,7 @@ python dataset_finetuning/generate_captions_moondream2.py \
   --output dataset_finetuning/blip2_data/train.jsonl
 ```
 
-**Pretrained weights** are not committed (size). See [`perception_agent/weights/README.md`](perception_agent/weights/README.md) for download/training instructions once released.
-
+The trained YOLOv11n checkpoint used by the default configuration is included at [`Yolov11n_Model_Weights/best.pt`](Yolov11n_Model_Weights/best.pt). The fine-tuned BLIP-2 checkpoint may be supplied separately via `MDAM_BLIP2_WEIGHTS`.
 ---
 
 ## Results
@@ -293,8 +298,8 @@ pip install pytest
 pytest tests/ -v
 ```
 
-Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-view caption fusion (Eq. 23), and dispatch severity/routing (Eq. 24-25) : the pure-Python logic that's testable without ROS/GPU hardware.
 
+Covers the assignment solver (Eq. 2 optimality + operator-override mode), confidence-prioritized multi-view caption fusion, and dispatch severity/routing logic, including both GPS/Haversine and local-Cartesian/Euclidean distance modes.
 ---
 
 ## Status / What's Implemented
@@ -303,7 +308,7 @@ Covers the assignment solver (Eq. 2 optimality + operator-override mode), multi-
 |---|---|
 | Planning agent (GPT-4o mini) | ✅ Implemented |
 | Coordination agent (Eq. 2 solver) | ✅ Implemented, unit-tested |
-| Perception agent (YOLOv11n train + inference) | ✅ Implemented (bring your own trained weights) |
+| Perception agent (YOLOv11n train + inference) | ✅ Implemented; trained YOLOv11n checkpoint included |
 | Description agent (BLIP-2 fine-tune + fusion) | ✅ Implemented, unit-tested |
 | Dispatch agent (Piper TTS + routing) | ✅ Implemented, unit-tested |
 | Dataset compilation / augmentation scripts | ✅ Implemented |
