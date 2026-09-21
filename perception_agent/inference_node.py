@@ -367,11 +367,12 @@ def run_ros_node(
     )
 
     state = {
-        "position": (
-            0.0,
-            0.0,
-            0.0,
-        )
+    "position": (
+        0.0,
+        0.0,
+        0.0,
+    ),
+    "assignment": None,
     }
 
     # Event trigger for downstream description processing.
@@ -405,6 +406,43 @@ def run_ros_node(
             msg.pose.position.y,
             msg.pose.position.z,
         )
+    
+    def _assignment_cb(msg):
+      """Cache the current mission/incident assignment for this drone."""
+  
+      try:
+          assignment = json.loads(
+              msg.data
+          )
+  
+      except json.JSONDecodeError:
+          logger.error(
+              f"[{namespace}] Invalid assignment JSON: "
+              f"{msg.data!r}"
+          )
+          return
+  
+      assigned_drone = assignment.get(
+          "drone_id"
+      )
+  
+      if (
+          assigned_drone is not None
+          and assigned_drone != namespace
+      ):
+          logger.warning(
+              f"[{namespace}] Ignoring assignment intended for "
+              f"{assigned_drone}"
+          )
+          return
+  
+      state["assignment"] = assignment
+  
+      logger.info(
+          f"[{namespace}] Assignment received: "
+          f"mission_id={assignment.get('mission_id')}, "
+          f"incident_id={assignment.get('incident_id')}"
+      )
 
     def _image_cb(msg):
 
@@ -445,13 +483,70 @@ def run_ros_node(
 
         # Trigger downstream processing ONLY for a newly persisted
         # event, not for every repeated detection frame.
+        # if outcome.get(
+        #     "persisted",
+        #     False,
+        # ):
+
+        #     event = outcome["event"]
+
+        #     event_pub.publish(
+        #         String(
+        #             data=json.dumps(
+        #                 event
+        #             )
+        #         )
+        #     )
+
+        #     detection_pub.publish(
+        #         Bool(
+        #             data=True
+        #         )
+        #     )
         if outcome.get(
             "persisted",
             False,
         ):
-
+      
             event = outcome["event"]
-
+        
+            assignment = state.get(
+                "assignment"
+            )
+        
+            if assignment is not None:
+        
+                event["mission_id"] = (
+                    assignment.get(
+                        "mission_id"
+                    )
+                )
+        
+                event["incident_id"] = (
+                    assignment.get(
+                        "incident_id"
+                    )
+                )
+        
+                event["incident_index"] = (
+                    assignment.get(
+                        "incident_index"
+                    )
+                )
+        
+                event["assigned_target"] = (
+                    assignment.get(
+                        "target"
+                    )
+                )
+        
+            else:
+                logger.warning(
+                    f"[{namespace}] Persisted event "
+                    f"{event.get('event_id')} has no current "
+                    "assigned_incident metadata."
+                )
+        
             event_pub.publish(
                 String(
                     data=json.dumps(
@@ -459,13 +554,13 @@ def run_ros_node(
                     )
                 )
             )
-
+        
             detection_pub.publish(
                 Bool(
                     data=True
                 )
             )
-
+      
     rospy.Subscriber(
         f"{namespace}/"
         f"mavros/local_position/pose",
@@ -473,7 +568,12 @@ def run_ros_node(
         _pose_cb,
         queue_size=10,
     )
-
+    rospy.Subscriber(
+    f"{namespace}/assigned_incident",
+    String,
+    _assignment_cb,
+    queue_size=10,
+    )
     rospy.Subscriber(
         f"{namespace}_camera/"
         f"image_raw",
