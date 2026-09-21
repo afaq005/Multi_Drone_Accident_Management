@@ -26,12 +26,27 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+    )
+)
 
-from model.config import RESCUE_CENTERS, SEVERITY_ALPHA, SEVERITY_BETA  # noqa: E402
-from model.utils import get_logger, haversine_distance_m, sigmoid  # noqa: E402
+from model.config import (  # noqa: E402
+    RESCUE_CENTERS,
+    SEVERITY_ALPHA,
+    SEVERITY_BETA,
+)
+from model.utils import (  # noqa: E402
+    get_logger,
+    haversine_distance_m,
+    sigmoid,
+)
 
-logger = get_logger("dispatch_agent.router")
+logger = get_logger(
+    "dispatch_agent.router"
+)
 
 
 def compute_severity(
@@ -50,7 +65,15 @@ def compute_severity(
 def nearest_rescue_center(
     coord_a: float,
     coord_b: float,
-    centers: Optional[List[Tuple[str, float, float]]] = None,
+    centers: Optional[
+        List[
+            Tuple[
+                str,
+                float,
+                float,
+            ]
+        ]
+    ] = None,
     coordinate_mode: str = "gps",
 ) -> Tuple[str, float]:
     """
@@ -69,29 +92,47 @@ def nearest_rescue_center(
     Returns:
         (center_name, distance)
     """
-    if coordinate_mode not in {"gps", "local"}:
+
+    if coordinate_mode not in {
+        "gps",
+        "local",
+    }:
         raise ValueError(
-            "coordinate_mode must be either 'gps' or 'local'"
+            "coordinate_mode must be either "
+            "'gps' or 'local'"
         )
+
+    # GPS mode may use the configured default geographic centers.
+    # Local mode must explicitly receive centers defined in the same
+    # Cartesian coordinate frame as the incident.
     if centers is None:
-      if coordinate_mode == "gps":
-          centers = RESCUE_CENTERS
-      else:
-          raise ValueError(
-              "Local coordinate mode requires explicit rescue-center "
-              "coordinates defined in the same Cartesian frame."
-          )
-  
-  if not centers:
-      raise ValueError(
-          "At least one rescue center is required."
-      )
+
+        if coordinate_mode == "gps":
+            centers = RESCUE_CENTERS
+
+        else:
+            raise ValueError(
+                "Local coordinate mode requires explicit "
+                "rescue-center coordinates defined in the "
+                "same Cartesian frame."
+            )
+
+    if not centers:
+        raise ValueError(
+            "At least one rescue center is required."
+        )
+
     best_name = None
     best_dist = float("inf")
 
-    for name, center_a, center_b in centers:
+    for (
+        name,
+        center_a,
+        center_b,
+    ) in centers:
 
         if coordinate_mode == "gps":
+
             dist = haversine_distance_m(
                 coord_a,
                 coord_b,
@@ -100,6 +141,7 @@ def nearest_rescue_center(
             )
 
         else:
+
             dist = math.hypot(
                 coord_a - center_a,
                 coord_b - center_b,
@@ -109,7 +151,10 @@ def nearest_rescue_center(
             best_name = name
             best_dist = dist
 
-    return best_name, best_dist
+    return (
+        best_name,
+        best_dist,
+    )
 
 
 def build_alert_payload(
@@ -123,11 +168,15 @@ def build_alert_payload(
     image_paths: Optional[List[str]] = None,
     event_id: Optional[str] = None,
 ) -> dict:
-    """Build the minimal JSON payload shown in Section 6.6."""
+    """Build the minimal JSON alert payload."""
 
-    if coordinate_mode not in {"gps", "local"}:
+    if coordinate_mode not in {
+        "gps",
+        "local",
+    }:
         raise ValueError(
-            "coordinate_mode must be either 'gps' or 'local'"
+            "coordinate_mode must be either "
+            "'gps' or 'local'"
         )
 
     severity = compute_severity(
@@ -136,90 +185,169 @@ def build_alert_payload(
     )
 
     payload = {
-        "event_id": event_id or uuid.uuid4().hex[:8].upper(),
+        "event_id": (
+            event_id
+            or uuid.uuid4().hex[:8].upper()
+        ),
         "type": incident_type,
         "summary": summary,
-        "coordinate_mode": coordinate_mode,
-        "severity": round(severity, 4),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "images": image_paths or [],
+        "coordinate_mode": (
+            coordinate_mode
+        ),
+        "severity": round(
+            severity,
+            4,
+        ),
+        "timestamp": (
+            datetime.now(
+                timezone.utc
+            ).isoformat()
+        ),
+        "images": (
+            image_paths
+            or []
+        ),
     }
 
     if coordinate_mode == "gps":
-        payload["lat"] = coord_a
-        payload["lon"] = coord_b
+
+        payload["lat"] = (
+            coord_a
+        )
+
+        payload["lon"] = (
+            coord_b
+        )
 
     else:
-        payload["x"] = coord_a
-        payload["y"] = coord_b
+
+        payload["x"] = (
+            coord_a
+        )
+
+        payload["y"] = (
+            coord_b
+        )
 
     return payload
 
 
 def route_alert(
     payload: dict,
-    centers: List[Tuple[str, float, float]] = RESCUE_CENTERS,
+    centers: Optional[
+        List[
+            Tuple[
+                str,
+                float,
+                float,
+            ]
+        ]
+    ] = None,
 ) -> dict:
     """Attach the chosen rescue center (Eq. 25) to an alert payload."""
 
-    coordinate_mode = payload.get(
-        "coordinate_mode",
-        "gps",
+    coordinate_mode = (
+        payload.get(
+            "coordinate_mode",
+            "gps",
+        )
     )
 
     if coordinate_mode == "gps":
-        coord_a = payload["lat"]
-        coord_b = payload["lon"]
+
+        coord_a = payload[
+            "lat"
+        ]
+
+        coord_b = payload[
+            "lon"
+        ]
 
     elif coordinate_mode == "local":
-        coord_a = payload["x"]
-        coord_b = payload["y"]
+
+        coord_a = payload[
+            "x"
+        ]
+
+        coord_b = payload[
+            "y"
+        ]
 
     else:
+
         raise ValueError(
-            "Unknown coordinate_mode in payload"
+            "Unknown coordinate_mode "
+            "in payload"
         )
 
-    center_name, distance = nearest_rescue_center(
-        coord_a,
-        coord_b,
-        centers=centers,
-        coordinate_mode=coordinate_mode,
+    center_name, distance = (
+        nearest_rescue_center(
+            coord_a,
+            coord_b,
+            centers=centers,
+            coordinate_mode=(
+                coordinate_mode
+            ),
+        )
     )
 
-    payload = dict(payload)
+    payload = dict(
+        payload
+    )
 
-    payload["rescue_center"] = center_name
+    payload[
+        "rescue_center"
+    ] = center_name
 
     if coordinate_mode == "gps":
-        payload["distance_to_center_m"] = round(
+
+        payload[
+            "distance_to_center_m"
+        ] = round(
             distance,
             1,
         )
 
         logger.info(
-            f"Routed alert {payload['event_id']} "
-            f"(severity={payload['severity']}) "
+            f"Routed alert "
+            f"{payload['event_id']} "
+            f"(severity="
+            f"{payload['severity']}) "
             f"to {center_name} "
             f"({distance:.0f} m away)"
         )
 
     else:
-        payload["distance_to_center_local"] = round(
+
+        payload[
+            "distance_to_center_local"
+        ] = round(
             distance,
             3,
         )
 
         logger.info(
-            f"Routed alert {payload['event_id']} "
-            f"(severity={payload['severity']}) "
+            f"Routed alert "
+            f"{payload['event_id']} "
+            f"(severity="
+            f"{payload['severity']}) "
             f"to {center_name} "
-            f"(local distance={distance:.2f})"
+            f"(local distance="
+            f"{distance:.2f})"
         )
 
     return payload
 
-def load_centers_json(path: str) -> List[Tuple[str, float, float]]:
+
+def load_centers_json(
+    path: str,
+) -> List[
+    Tuple[
+        str,
+        float,
+        float,
+    ]
+]:
     """
     Load rescue-center coordinates from JSON.
 
@@ -231,50 +359,98 @@ def load_centers_json(path: str) -> List[Tuple[str, float, float]]:
         ]
     """
 
+    if not os.path.isfile(
+        path
+    ):
+        raise FileNotFoundError(
+            f"Rescue-center file "
+            f"not found: {path}"
+        )
+
     with open(
         path,
         "r",
         encoding="utf-8",
     ) as f:
-        raw = json.load(f)
+        raw = json.load(
+            f
+        )
+
+    if not isinstance(
+        raw,
+        list,
+    ):
+        raise ValueError(
+            "Rescue-center JSON "
+            "must contain a list."
+        )
 
     centers = []
 
     for item in raw:
+
         if (
-            not isinstance(item, list)
+            not isinstance(
+                item,
+                (list, tuple),
+            )
             or len(item) != 3
         ):
             raise ValueError(
-                "Each rescue center must have the form "
-                "[name, coordinate_a, coordinate_b]."
+                "Each rescue center must "
+                "have the form "
+                "[name, coordinate_a, "
+                "coordinate_b]."
             )
 
-        name, coord_a, coord_b = item
+        (
+            name,
+            coord_a,
+            coord_b,
+        ) = item
 
         centers.append(
             (
                 str(name),
-                float(coord_a),
-                float(coord_b),
+                float(
+                    coord_a
+                ),
+                float(
+                    coord_b
+                ),
             )
         )
 
+    if not centers:
+        raise ValueError(
+            "At least one rescue "
+            "center is required."
+        )
+
     return centers
-  
+
+
 def main():
+
     parser = argparse.ArgumentParser(
-        description="Dispatch Agent routing (Eq. 24-25)"
+        description=(
+            "Dispatch Agent routing "
+            "(Eq. 24-25)"
+        )
     )
+
     parser.add_argument(
-    "--centers-json",
-    type=str,
-    default=None,
-    help=(
-        "Optional JSON file containing rescue-center coordinates. "
-        "Required when --coordinate-mode local."
-    ),
-)
+        "--centers-json",
+        type=str,
+        default=None,
+        help=(
+            "Optional JSON file containing "
+            "rescue-center coordinates. "
+            "Required when "
+            "--coordinate-mode local."
+        ),
+    )
+
     parser.add_argument(
         "--type",
         type=str,
@@ -289,9 +465,16 @@ def main():
 
     parser.add_argument(
         "--coordinate-mode",
-        choices=["gps", "local"],
+        choices=[
+            "gps",
+            "local",
+        ],
         default="gps",
-        help="Use 'gps' for lat/lon or 'local' for Cartesian x/y coordinates.",
+        help=(
+            "Use 'gps' for lat/lon "
+            "or 'local' for Cartesian "
+            "x/y coordinates."
+        ),
     )
 
     parser.add_argument(
@@ -322,60 +505,89 @@ def main():
         "--conf",
         type=float,
         default=0.85,
-        help="YOLO detection confidence",
+        help=(
+            "YOLO detection confidence"
+        ),
     )
 
     parser.add_argument(
         "--log-p-blip2",
         type=float,
         default=-0.5,
-        help="BLIP-2 caption log-likelihood",
+        help=(
+            "BLIP-2 caption "
+            "log-likelihood"
+        ),
     )
 
     args = parser.parse_args()
 
     if args.coordinate_mode == "gps":
 
-        if args.lat is None or args.lon is None:
+        if (
+            args.lat is None
+            or args.lon is None
+        ):
             parser.error(
-                "--lat and --lon are required when "
+                "--lat and --lon are "
+                "required when "
                 "--coordinate-mode gps"
             )
 
         coord_a = args.lat
         coord_b = args.lon
+
         centers = (
-            load_centers_json(args.centers_json)
+            load_centers_json(
+                args.centers_json
+            )
             if args.centers_json
             else None
         )
 
     else:
 
-        if args.x is None or args.y is None:
+        if (
+            args.x is None
+            or args.y is None
+        ):
             parser.error(
-                "--x and --y are required when "
-                "--coordinate-mode local"
+                "--x and --y are required "
+                "when --coordinate-mode local"
+            )
+
+        if not args.centers_json:
+            parser.error(
+                "--centers-json is required "
+                "when --coordinate-mode local"
             )
 
         coord_a = args.x
         coord_b = args.y
-         centers = load_centers_json( args.centers_json)
+
+        centers = load_centers_json(
+            args.centers_json
+        )
+
     payload = build_alert_payload(
-        args.type,
-        args.summary,
-        coord_a,
-        coord_b,
-        args.conf,
-        args.log_p_blip2,
-        coordinate_mode=args.coordinate_mode,
+        incident_type=args.type,
+        summary=args.summary,
+        coord_a=coord_a,
+        coord_b=coord_b,
+        conf_yolo=args.conf,
+        log_p_blip2=(
+            args.log_p_blip2
+        ),
+        coordinate_mode=(
+            args.coordinate_mode
+        ),
     )
 
-    # routed = route_alert(payload)
     routed = route_alert(
         payload,
         centers=centers,
     )
+
     print(
         json.dumps(
             routed,
