@@ -16,7 +16,7 @@ comparable to the paper.
 Usage:
 python perception_agent/train_yolov11n.py \
     --data dataset_finetuning/compiled/data.yaml \
-    --epochs 100
+    --epochs 200
 """
 import argparse
 import os
@@ -35,7 +35,17 @@ from model.utils import get_logger  # noqa: E402
 logger = get_logger("perception_agent.train")
 
 
-def train(data_yaml: str, epochs: int, batch: int, imgsz: int, weights: str, project: str):
+# def train(data_yaml: str, epochs: int, batch: int, imgsz: int, weights: str, project: str):
+def train(
+    data_yaml: str,
+    epochs: int,
+    batch: int,
+    imgsz: int,
+    weights: str,
+    project: str,
+    patience: int,
+    seed: int,
+):
     try:
         from ultralytics import YOLO
     except ImportError:
@@ -59,23 +69,20 @@ def train(data_yaml: str, epochs: int, batch: int, imgsz: int, weights: str, pro
         batch=batch,
         project=project,
         name="yolov11n_accident_fire",
-        classes=None,  # dataset yaml defines 'accident', 'fire'
-        patience=20,
+        classes=None,
+        patience=patience,
+        seed=seed,
+        amp=True,
+        optimizer="auto",
         exist_ok=True,
     )
 
-    # Validation mirrors Table 1's metrics (P, R, mAP@50).
-    # metrics = model.val()
-    # logger.info(f"mAP@50 (all classes): {metrics.box.map50:.3f}")
-    # logger.info(f"Precision (mean): {metrics.box.mp:.3f}")
-    # logger.info(f"Recall (mean): {metrics.box.mr:.3f}")
-
-    # best_weights = os.path.join(project, "yolov11n_accident_fire", "weights", "best.pt")
     best_weights = os.path.join(
-    project,
-    "yolov11n_accident_fire",
-    "weights",
-    "best.pt",)
+        project,
+        "yolov11n_accident_fire",
+        "weights",
+        "best.pt",
+    )
 
     # Evaluate the best checkpoint on the held-out TEST partition,
     # matching Table 1 of the paper.
@@ -112,14 +119,47 @@ def train(data_yaml: str, epochs: int, batch: int, imgsz: int, weights: str, pro
 def main():
     parser = argparse.ArgumentParser(description="Train YOLOv11n perception agent")
     parser.add_argument("--data", type=str, default="dataset_finetuning/compiled/data.yaml")
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=200,
+        help="Training epochs; 200 matches the bundled paper checkpoint.",
+    )
+    
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=16,
+    )
+    
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=100,
+        help="Early-stopping patience; 100 matches the bundled checkpoint.",
+    )
+    
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Training random seed; 0 matches the bundled checkpoint.",
+    )
     parser.add_argument("--imgsz", type=int, default=YOLO_IMG_SIZE)
     parser.add_argument("--weights", type=str, default="yolo11n.pt",
                          help="Starting checkpoint (pretrained COCO weights)")
     parser.add_argument("--project", type=str, default="perception_agent/runs")
     args = parser.parse_args()
-    train(args.data, args.epochs, args.batch, args.imgsz, args.weights, args.project)
+    train(
+        args.data,
+        args.epochs,
+        args.batch,
+        args.imgsz,
+        args.weights,
+        args.project,
+        args.patience,
+        args.seed,
+    )
 
 
 if __name__ == "__main__":
