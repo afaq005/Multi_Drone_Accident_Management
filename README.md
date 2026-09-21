@@ -6,7 +6,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](requirements.txt)
 ![ROS Noetic](https://img.shields.io/badge/ROS-Noetic-22314E.svg)
 ![Gazebo 11](https://img.shields.io/badge/Gazebo-11-orange.svg)
-[![Zenodo](https://img.shields.io/badge/Zenodo-10.5281%2Fzenodo.22808434-blue.svg)]()
+[![Zenodo](https://img.shields.io/badge/Zenodo-10.5281%2Fzenodo.22808434-blue.svg)](https://doi.org/10.5281/zenodo.22871216)
 
 This repository implements the system described in:
 
@@ -954,7 +954,7 @@ The custom code developed for this study, including the agent implementations, R
 
 https://github.com/afaq005/Multi_Drone_Accident_Management
 
-A permanent archived version is available through Zenodo:
+A permanent archived version is available through Zenodo: https://doi.org/10.5281/zenodo.22871216 
 
 
 
@@ -988,7 +988,7 @@ Update the bibliographic entry with the final journal volume/article information
 For the archived code:
 
 ```text
-Zenodo DOI: 
+Zenodo DOI:  https://doi.org/10.5281/zenodo.22871216
 ```
 
 ---
