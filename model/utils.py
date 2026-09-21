@@ -62,43 +62,139 @@ def safe_log(p: float, eps: float = 1e-9) -> float:
 
 
 PLANNING_JSON_SCHEMA_KEYS = {"incidents"}
-INCIDENT_KEYS_REQUIRED = {"lat", "lon"}
-
+INCIDENT_KEYS_REQUIRED = {"lat", "lon", "alt"}
 
 def validate_planning_output(payload: Dict[str, Any]) -> bool:
-    """Validate the planning agent's JSON output against the minimal schema
-    described in Section 6.2: a list of incidents, each with lat/lon, and an
-    optional explicit `drone` field when the operator pre-assigns drones.
-
-    Returns True if valid, False otherwise (callers should exit gracefully
-    rather than crash, per the paper: "If the JSON schema is violated ...
-    the node exits gracefully.").
     """
+    Validate the normalized planning-agent output.
+
+    Valid actionable payloads contain one or more incidents with numeric
+    lat/lon/alt fields. In local mode these legacy field names represent
+    Cartesian x/y/z coordinates.
+
+    An empty incident list is also valid when the planner explicitly
+    reports that insufficient waypoint information was provided.
+    """
+
     if not isinstance(payload, dict):
         return False
-    if not PLANNING_JSON_SCHEMA_KEYS.issubset(payload.keys()):
+
+    if "incidents" not in payload:
         return False
+
     incidents = payload["incidents"]
-    if not isinstance(incidents, list) or len(incidents) == 0:
+
+    if not isinstance(incidents, list):
         return False
+
+    coordinate_mode = payload.get(
+        "coordinate_mode",
+        "local",
+    )
+
+    if coordinate_mode not in {
+        "local",
+        "gps",
+    }:
+        return False
+
+    # Graceful non-actionable planning response.
+    if len(incidents) == 0:
+        return payload.get("intent") == (
+            "insufficient_waypoint_information"
+        )
+
     for inc in incidents:
+
         if not isinstance(inc, dict):
             return False
-        if not INCIDENT_KEYS_REQUIRED.issubset(inc.keys()):
+
+        if not INCIDENT_KEYS_REQUIRED.issubset(
+            inc.keys()
+        ):
             return False
+
         try:
             float(inc["lat"])
             float(inc["lon"])
+            float(inc["alt"])
+
         except (TypeError, ValueError):
             return False
-    return True
 
+        incident_mode = inc.get(
+            "coordinate_mode",
+            coordinate_mode,
+        )
+
+        if incident_mode not in {
+            "local",
+            "gps",
+        }:
+            return False
+
+        drone = inc.get("drone")
+
+        if drone is not None:
+            if (
+                not isinstance(drone, str)
+                or not drone.startswith("/drone")
+            ):
+                return False
+
+    return True
+# def validate_planning_output(payload: Dict[str, Any]) -> bool:
+#     """Validate the planning agent's JSON output against the minimal schema
+#     described in Section 6.2: a list of incidents, each with lat/lon, and an
+#     optional explicit `drone` field when the operator pre-assigns drones.
+
+#     Returns True if valid, False otherwise (callers should exit gracefully
+#     rather than crash, per the paper: "If the JSON schema is violated ...
+#     the node exits gracefully.").
+#     """
+#     if not isinstance(payload, dict):
+#         return False
+#     if not PLANNING_JSON_SCHEMA_KEYS.issubset(payload.keys()):
+#         return False
+#     incidents = payload["incidents"]
+#     if not isinstance(incidents, list) or len(incidents) == 0:
+#         return False
+#     for inc in incidents:
+#         if not isinstance(inc, dict):
+#             return False
+#         if not INCIDENT_KEYS_REQUIRED.issubset(inc.keys()):
+#             return False
+#         try:
+#             float(inc["lat"])
+#             float(inc["lon"])
+#         except (TypeError, ValueError):
+#             return False
+#     return True
 
 def load_json_safely(text: str):
-    """Strip common LLM wrapping (markdown fences) before parsing JSON."""
+    """Remove common Markdown code fences before parsing LLM JSON output."""
+
     cleaned = text.strip()
+
     if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:]
-    return json.loads(cleaned.strip())
+        lines = cleaned.splitlines()
+
+        # Remove opening fence such as ``` or ```json.
+        if lines:
+            lines = lines[1:]
+
+        # Remove closing fence.
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        cleaned = "\n".join(lines).strip()
+
+    return json.loads(cleaned)
+# def load_json_safely(text: str):
+#     """Strip common LLM wrapping (markdown fences) before parsing JSON."""
+#     cleaned = text.strip()
+#     if cleaned.startswith("```"):
+#         cleaned = cleaned.strip("`")
+#         if cleaned.lower().startswith("json"):
+#             cleaned = cleaned[4:]
+#     return json.loads(cleaned.strip())
