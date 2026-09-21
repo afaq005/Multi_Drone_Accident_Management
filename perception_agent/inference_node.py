@@ -91,17 +91,30 @@ class PerceptionAgent:
 
         a_perc = 1 if max_conf >= self.conf_threshold else 0  # Eq. 21
 
+        annotated_frame = result.plot()
+
         outcome = {
             "namespace": self.namespace,
             "detected": bool(a_perc),
             "confidence": max_conf,
             "class": class_name,
-            "annotated_frame": result.plot() if a_perc else None,
+            "annotated_frame": annotated_frame,
             "persisted": False,
         }
+        
+        # Maintain a rolling window of the three most recent annotated frames.
+        self.frame_buffer.append(
+            {
+                "frame": annotated_frame,
+                "confidence": max_conf,
+                "class": class_name,
+                "position": drone_position,
+                "timestamp": time.time(),
+            }
+        )
 
-        if not a_perc:
-            return outcome
+if not a_perc:
+    return outcome
 
         # Eq. 22: persist only if drone has moved > d_min since last
         # stored detection, or this is the first detection ever.
@@ -110,24 +123,34 @@ class PerceptionAgent:
             and euclidean_distance(drone_position, self.last_detection_pos)
             > self.dedup_distance_m
         )
-
         if should_persist:
-            self.frame_buffer.append(
-                {
-                    "frame": outcome["annotated_frame"],
-                    "confidence": max_conf,
-                    "class": class_name,
-                    "position": drone_position,
-                    "timestamp": time.time(),
-                }
-            )
             self.last_detection_pos = drone_position
             self.first_run = False
             outcome["persisted"] = True
+            outcome["event_frame_window"] = list(self.frame_buffer)
+        
             logger.info(
                 f"[{self.namespace}] Persisted {class_name} detection "
-                f"(conf={max_conf:.2f}) at {drone_position}"
+                f"(conf={max_conf:.2f}) at {drone_position}; "
+                f"frame_window={len(self.frame_buffer)}"
             )
+        # if should_persist:
+        #     self.frame_buffer.append(
+        #         {
+        #             "frame": outcome["annotated_frame"],
+        #             "confidence": max_conf,
+        #             "class": class_name,
+        #             "position": drone_position,
+        #             "timestamp": time.time(),
+        #         }
+        #     )
+        #     self.last_detection_pos = drone_position
+        #     self.first_run = False
+        #     outcome["persisted"] = True
+        #     logger.info(
+        #         f"[{self.namespace}] Persisted {class_name} detection "
+        #         f"(conf={max_conf:.2f}) at {drone_position}"
+        #     )
 
         return outcome
 
@@ -150,17 +173,35 @@ def run_ros_node(namespace: str):
     detection_pub = rospy.Publisher(
         f"{namespace}/yolo_detection/detected", Bool, queue_size=10
     )
-
+    annotated_pub = rospy.Publisher(f"{namespace}/yolo_detection/annotated",    Image, queue_size=1,)
     def _pose_cb(msg):
         state["position"] = (
             msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
         )
 
     def _image_cb(msg):
-        frame = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        outcome = agent.process_frame(frame, state["position"])
-        if outcome["detected"]:
-            detection_pub.publish(Bool(data=True))
+      frame = bridge.imgmsg_to_cv2(
+          msg,
+          desired_encoding="bgr8"
+      )
+  
+      outcome = agent.process_frame(
+          frame,
+          state["position"]
+      )
+  
+      annotated_frame = outcome.get("annotated_frame")
+  
+      if annotated_frame is not None:
+          annotated_msg = bridge.cv2_to_imgmsg(
+              annotated_frame,
+              encoding="bgr8",
+          )
+          annotated_msg.header = msg.header
+          annotated_pub.publish(annotated_msg)
+  
+      if outcome.get("detected", False):
+          detection_pub.publish(Bool(data=True))
 
     rospy.Subscriber(f"{namespace}/mavros/local_position/pose", PoseStamped, _pose_cb)
     rospy.Subscriber(f"{namespace}_camera/image_raw", Image, _image_cb)
